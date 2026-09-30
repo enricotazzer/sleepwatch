@@ -1,0 +1,32 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      # ruff runs from the project environment, so its version is the one in uv.lock.
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --frozen ruff check --fix
+        language: system
+        types_or: [python, pyi, jupyter]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format
+        language: system
+        types_or: [python, pyi, jupyter]
+      - id: no-data-files
+        name: no dataset files in git
+        entry: Dataset files must not be committed; keep them under data/, which is gitignored.
+        language: fail
+        files: \.(csv|mat|parquet|zip|npy|npz|h5|hdf5|edf)$
+        exclude: ^tests/fixtures/

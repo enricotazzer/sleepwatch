@@ -1,0 +1,28 @@
+# Data and outputs: never committed. No trailing slash, so symlinks are ignored too.
+/data
+/results
+
+# Local configuration
+.env
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# macOS (including ._* resource forks written on exFAT drives)
+.DS_Store
+._*

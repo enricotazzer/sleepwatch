@@ -1,0 +1,13 @@
+# Defaults shared by every experiment config; experiment YAMLs (Phase 1+) extend this file
+# and are validated by pydantic models. Editing a value here changes every experiment.
+
+seed: 42
+
+labels:
+  target: expert_label   # ground truth; dreem_label is at most a noisy auxiliary training signal
+  unknown: mask          # Unknown (5) epochs are excluded from losses and metrics
+
+splits:
+  unit: subject          # nights of one subject never straddle train and test
+  n_folds: 5
+  file: configs/splits/subject_folds.json   # generated once (Phase 2) and reused by all runs
