@@ -1,0 +1,15 @@
+# Epoch feature set v1 (fields and meaning: sleepwatch.features.epoch_features.FeatureConfig).
+# Build with: uv run sleepwatch data build-epochs --config configs/features/v1.yaml
+name: v1
+hr_grid_hz: 1
+hr_max_gap_s: 30
+motion_hz: 50
+motion_max_gap_s: 1.0
+min_coverage: 0.5
+activity_band_hz: [0.25, 2.5]
+angle_block_s: 5
+detrend_window_epochs: 41
+onset_window_epochs: 20
+onset_angle_deg: 5.0
+context_windows: [2, 5, 10]
+context_features: [hr_mean, hr_detrend, enmo_mean, activity, angle_change]

@@ -41,3 +41,21 @@ Newest entries last. Each entry gives the decision and the reason for it.
 12. **CI.** GitHub Actions runs ruff and the tests that need no data.
 13. **Still open.** The frontend (Streamlit vs React) is decided at Phase 5 and the LLM models at
     Phase 4. In Phase 4, Ollama models are stored on the T7 via `OLLAMA_MODELS`.
+
+## 2026-09-30 — Phase 1
+
+14. **No cache of raw signals.** A night's CSVs parse in 0.1–0.2 s with the pyarrow engine, so
+    only the epoch table is cached. `data/interim` holds just the manifest for now.
+15. **Features on uniform grids.** Heart rate is put on a 1 Hz grid and motion on a 50 Hz grid,
+    with gaps never bridged, because the watch's sampling rates differ between nights. Tests check
+    that features agree at 2 s vs 5 s heart rate and at 50 vs 33 Hz motion.
+16. **Coverage is not a feature.** `qc_*` columns (coverage, raw sample counts) are for masking and
+    diagnostics only; the HR sample count is slightly lower in Wake and would be a device shortcut.
+17. **Features never read labels.** A test checks that shuffling labels leaves every feature
+    unchanged. Sleep onset is estimated from arm-angle stillness.
+18. **Whole-night features are accepted.** Night-relative heart rate, detrending, centred windows
+    and the zero-phase filter suit next-morning analysis. A real-time variant would need causal
+    versions.
+19. **Label timing is measured, not assumed.** `data/label_timing.py` estimates label-to-signal
+    offsets. It found the expert labels about 2–3 epochs late (see docs/data.md). No shift is
+    applied until a decision in Phase 2.

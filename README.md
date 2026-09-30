@@ -23,8 +23,8 @@ with an LLM follow-up agent that asks about your day after an unusual night.
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Project setup, dataset verification | done |
-| 1 | Data pipeline, epoch features, exploratory analysis | next |
-| 2 | Sleep staging with multi-night personalization | planned |
+| 1 | Data pipeline, epoch features, exploratory analysis | done (on partial data) |
+| 2 | Sleep staging with multi-night personalization | next |
 | 3 | Personalized anomaly detection | planned |
 | 4 | LLM follow-up agent and simulated-user evaluation | planned |
 | 5 | Deployable app | planned |

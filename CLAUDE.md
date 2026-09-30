@@ -8,7 +8,7 @@ Research prototype, not a medical device.
 ## Workflow
 Work is split into phases 0–6 (see README). Each phase starts with a plan the user approves, and
 ends with a results summary; then wait for the go-ahead. Ask when a decision is the user's.
-Phase 0 (setup) is done.
+Phases 0 (setup) and 1 (data pipeline + EDA) are done.
 
 ## Commands
 ```bash
@@ -18,12 +18,17 @@ uv run ruff check . && uv run ruff format .
 uv run pre-commit run --all-files
 uv run sleepwatch data verify            # hash raw files vs SHA256SUMS.txt, save the manifest
 uv run sleepwatch data verify --fast     # presence/truncation check only, saves nothing
+uv run sleepwatch data build-epochs      # epoch table from verified nights (configs/features/v1.yaml)
+uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipynb
 ```
 
 ## Layout
 - `src/sleepwatch/`: `config.py` (paths from `SLEEPWATCH_*` env / `.env`), `constants.py`
-  (dataset facts, stage codes), `cli.py`, `data/` (manifest; loaders from Phase 1), `features/`,
-  `models/`, `anomaly/`, `agent/`, `app/`.
+  (dataset facts, stage codes), `cli.py`, `provenance.py` (git revision for outputs), `data/`
+  (`manifest`, `loader` with `load_night`, `align`, `label_timing`), `features/`
+  (`epoch_features`, `build` with `load_build`), `models/`, `anomaly/`, `agent/`, `app/`.
+- Epoch table: `data/processed/epochs_<name>.parquet`; model inputs are
+  `feature_columns(df)`, which excludes metadata, labels and `qc_*` coverage columns.
 - `configs/`: experiment YAMLs extending `base.yaml`; `configs/splits/` holds the fold file.
 - `data/` (gitignored): `raw` → symlink to the dataset on the external T7 drive; `interim` →
   symlink to `/Volumes/T7/sleepwatch-data/interim`; `processed/` local. `results/` (gitignored).
@@ -36,6 +41,8 @@ uv run sleepwatch data verify --fast     # presence/truncation check only, saves
 - Stages: 0 Wake, 1 N1, 2 N2, 3 N3, 4 REM, 5 Unknown. Epoch k (0-based) covers
   `[recStart + 30k, recStart + 30(k+1))`.
 - Signal files overhang the label window (up to days) or start/end inside it: always crop and mask.
+- Open issues (docs/data.md): expert labels appear to run 2–3 epochs late relative to the signals
+  (Dreem doesn't), and `Bidslab01/4` has suspect expert labels. Neither is corrected yet.
 - The T7 is exFAT (no symlinks, `._*` litter): the repo and venv stay on the internal disk, which
   has little free space, so raw data and large caches stay on the T7.
 
