@@ -20,6 +20,7 @@ uv run sleepwatch data verify            # hash raw files vs SHA256SUMS.txt, sav
 uv run sleepwatch data verify --fast     # presence/truncation check only, saves nothing
 uv run sleepwatch data build-epochs      # epoch table from verified nights (configs/features/v1.yaml)
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipynb
+uv run jupyter nbconvert --to notebook --execute --inplace notebooks/phase1_2_check.ipynb  # review checks
 ```
 
 ## Layout
