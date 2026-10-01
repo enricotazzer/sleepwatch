@@ -88,12 +88,14 @@ def test_cross_validated_predictions_are_complete_and_leak_free(epochs, folds, m
         assert set(fold_rows["subject"]) == set(entry["test"])
     personalized = pred[pred["method"] != "population"]
     assert personalized["eval_night"].all()  # N-curve variants score evaluation nights only
+    assert set(personalized["method"]) == {"matched", "prior_norm", "prior_stage"}
     for (method, n), rows in personalized.groupby(["method", "n_prior"]):
         assert len(rows) == len(population[population["eval_night"]]), (method, n)
 
     metrics = compute_metrics(pred, n_boot=20, seed=0)
     assert metrics["population"]["all"]["5"]["pooled"]["kappa"] > 0.3  # learnable signal
-    assert set(metrics["n_curve"]) == {"prior_norm", "prior_stage"}
+    assert set(metrics["n_curve"]) == {"matched", "prior_norm", "prior_stage"}
+    assert "vs_matched" in metrics["n_curve"]["prior_norm"][1]
 
 
 def test_label_shift_is_estimated_on_training_subjects(epochs, folds):

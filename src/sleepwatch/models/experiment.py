@@ -99,8 +99,12 @@ def run_folds(cfg: StagingConfig, epochs: pd.DataFrame, folds: dict[str, int], l
     epochs["covered"] = (epochs["qc_hr_coverage"] >= MIN_COVERAGE) & (
         epochs["qc_motion_coverage"] >= MIN_COVERAGE
     )
+    # "matched" is the control for personalization: trained on exactly the same nights as the
+    # personalized models (each subject's nights after the first N) but with no personal
+    # features, so a personalization gain isn't confounded with the smaller training set.
+    personalized = [m for m in ("matched", *cfg.personalization) if cfg.personalization]
     variants = [("population", 0)] + [
-        (method, n) for method in cfg.personalization for n in cfg.n_prior if n > 0
+        (method, n) for method in personalized for n in cfg.n_prior if n > 0
     ]
     predictions, fold_log = [], []
     for fold, (train_s, test_s) in enumerate(outer_splits(folds)):
@@ -120,10 +124,11 @@ def run_folds(cfg: StagingConfig, epochs: pd.DataFrame, folds: dict[str, int], l
         for method, n in variants:
             frame, cols, usable = data, base_cols, np.ones(len(data), bool)
             if method != "population":
+                usable = (data["night_rank"] > n).to_numpy()
+            if method in ("prior_norm", "prior_stage"):
                 extra = personal_features(data, n, method, label="_target")
                 frame = pd.concat([data, extra], axis=1)
                 cols = base_cols + list(extra.columns)
-                usable = (data["night_rank"] > n).to_numpy()
             test_mask = data["subject"].isin(test_s).to_numpy()
             if method != "population":
                 test_mask = test_mask & data["eval_night"].to_numpy()
@@ -168,6 +173,11 @@ def compute_metrics(pred: pd.DataFrame, n_boot: int, seed: int) -> dict:
             curve[int(n)]["vs_population"] = {
                 s: paired_difference(baseline, rows, s, n_boot, seed) for s in ("5", "4")
             }
+            control = pred[(pred["method"] == "matched") & (pred["n_prior"] == n)]
+            if method != "matched" and len(control):
+                curve[int(n)]["vs_matched"] = {
+                    s: paired_difference(control, rows, s, n_boot, seed) for s in ("5", "4")
+                }
         out["n_curve"][method] = curve
     return out
 
