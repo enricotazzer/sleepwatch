@@ -116,3 +116,14 @@ def test_saved_run(tmp_path, epochs, folds):
         assert (run_dir / name).is_file()
     index = pd.read_csv(tmp_path / "index.csv")
     assert index.loc[0, "partial"] and index.loc[0, "name"] == "smoke"
+
+
+@pytest.mark.parametrize("model", ["hgb", "gru"])
+def test_parallel_folds_give_identical_predictions(epochs, folds, model):
+    cfg = StagingConfig(
+        name="jobs", model=model, folds=[0, 1], n_boot=20, hgb=QUICK_HGB, gru=QUICK_GRU
+    )
+    serial, log_serial = run_folds(cfg, epochs, folds, log=lambda *_: None, jobs=1)
+    parallel, log_parallel = run_folds(cfg, epochs, folds, log=lambda *_: None, jobs=2)
+    pd.testing.assert_frame_equal(serial, parallel)
+    assert [e["fold"] for e in log_parallel] == [e["fold"] for e in log_serial] == [0, 1]

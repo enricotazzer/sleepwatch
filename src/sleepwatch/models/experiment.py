@@ -22,6 +22,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 import yaml
+from joblib import Parallel, delayed
 from pydantic import BaseModel, ConfigDict
 
 from sleepwatch.constants import UNKNOWN
@@ -92,13 +93,43 @@ def _fit_predict(cfg, train_rows, test_rows, cols, fit_s, val_s, seed, tuned):
     return proba, history
 
 
-def run_folds(cfg: StagingConfig, epochs: pd.DataFrame, folds: dict[str, int], log=print):
-    """Cross-validated predictions (one row per test epoch per variant) and a per-fold log."""
+def run_folds(
+    cfg: StagingConfig, epochs: pd.DataFrame, folds: dict[str, int], log=print, jobs: int = 1
+):
+    """Cross-validated predictions (one row per test epoch per variant) and a per-fold log.
+
+    With ``jobs > 1`` folds train in parallel processes. Every fold is seeded on its own, so the
+    output doesn't depend on ``jobs``; progress is then logged as each fold finishes.
+    """
     base_cols = feature_columns(epochs)
     epochs = prepare(epochs)
     epochs["covered"] = (epochs["qc_hr_coverage"] >= MIN_COVERAGE) & (
         epochs["qc_motion_coverage"] >= MIN_COVERAGE
     )
+    tasks = [
+        (fold, train_s, test_s)
+        for fold, (train_s, test_s) in enumerate(outer_splits(folds))
+        if cfg.folds is None or fold in cfg.folds
+    ]
+    if jobs == 1:
+        results = (_run_fold(cfg, epochs, base_cols, *task, log) for task in tasks)
+    else:
+        results = Parallel(n_jobs=jobs, return_as="generator")(
+            delayed(_run_fold)(cfg, epochs, base_cols, *task, None) for task in tasks
+        )
+    predictions, fold_log = [], []
+    for fold_predictions, entry, messages in results:
+        for message in messages:
+            log(message)
+        predictions.extend(fold_predictions)
+        fold_log.append(entry)
+    return pd.concat(predictions, ignore_index=True), fold_log
+
+
+def _run_fold(cfg, epochs, base_cols, fold, train_s, test_s, log):
+    """Every variant for one outer fold; messages are returned when ``log`` is None."""
+    messages = []
+    emit = log or messages.append
     # "matched" is the control for personalization: trained on exactly the same nights as the
     # personalized models (each subject's nights after the first N) but with no personal
     # features, so a personalization gain isn't confounded with the smaller training set.
@@ -106,50 +137,43 @@ def run_folds(cfg: StagingConfig, epochs: pd.DataFrame, folds: dict[str, int], l
     variants = [("population", 0)] + [
         (method, n) for method in personalized for n in cfg.n_prior if n > 0
     ]
-    predictions, fold_log = [], []
-    for fold, (train_s, test_s) in enumerate(outer_splits(folds)):
-        if cfg.folds is not None and fold not in cfg.folds:
-            continue
-        if set(train_s) & set(test_s):
-            raise RuntimeError(f"fold {fold}: a subject is in both training and test")
-        seed = cfg.seed + fold
-        in_train = epochs["subject"].isin(train_s)
-        lag = estimate_label_lag(epochs[in_train]) if cfg.label_shift == "estimate" else 0
-        data = epochs.assign(
-            _target=shifted(epochs, cfg.train_labels, lag), _truth=shifted(epochs, "expert", lag)
-        )
-        fit_s, val_s = inner_split(train_s, cfg.val_fraction, seed)
-        entry = {"fold": fold, "train": train_s, "test": test_s, "val": val_s, "label_lag": lag}
-        tuned = None
-        for method, n in variants:
-            frame, cols, usable = data, base_cols, np.ones(len(data), bool)
-            if method != "population":
-                usable = (data["night_rank"] > n).to_numpy()
-            if method in ("prior_norm", "prior_stage"):
-                extra = personal_features(data, n, method, label="_target")
-                frame = pd.concat([data, extra], axis=1)
-                cols = base_cols + list(extra.columns)
-            test_mask = data["subject"].isin(test_s).to_numpy()
-            if method != "population":
-                test_mask = test_mask & data["eval_night"].to_numpy()
-            train_rows = frame[in_train.to_numpy() & usable]
-            test_rows = frame[test_mask]
-            # A personal feature can be missing for every training row (e.g. no one had N1 on
-            # their first night); it carries no information and breaks tree binning.
-            cols = [c for c in cols if train_rows[c].notna().any()]
-            proba, info = _fit_predict(cfg, train_rows, test_rows, cols, fit_s, val_s, seed, tuned)
-            if method == "population" and cfg.model == "hgb":
-                tuned = info["params"]  # personalized variants reuse the tuned hyperparameters
-            entry[f"{method}_{n}"] = info
-            out = test_rows[["subject", "night", "epoch", "eval_night", "covered", "_truth"]]
-            out = out.rename(columns={"_truth": "y_true"}).assign(
-                fold=fold, method=method, n_prior=n
-            )
-            out[PROBA_COLUMNS] = proba
-            predictions.append(out[out["y_true"] != UNKNOWN])
-            log(f"fold {fold} {method} N={n}: {len(test_rows)} test epochs")
-        fold_log.append(entry)
-    return pd.concat(predictions, ignore_index=True), fold_log
+    if set(train_s) & set(test_s):
+        raise RuntimeError(f"fold {fold}: a subject is in both training and test")
+    seed = cfg.seed + fold
+    in_train = epochs["subject"].isin(train_s)
+    lag = estimate_label_lag(epochs[in_train]) if cfg.label_shift == "estimate" else 0
+    data = epochs.assign(
+        _target=shifted(epochs, cfg.train_labels, lag), _truth=shifted(epochs, "expert", lag)
+    )
+    fit_s, val_s = inner_split(train_s, cfg.val_fraction, seed)
+    entry = {"fold": fold, "train": train_s, "test": test_s, "val": val_s, "label_lag": lag}
+    tuned, predictions = None, []
+    for method, n in variants:
+        frame, cols, usable = data, base_cols, np.ones(len(data), bool)
+        if method != "population":
+            usable = (data["night_rank"] > n).to_numpy()
+        if method in ("prior_norm", "prior_stage"):
+            extra = personal_features(data, n, method, label="_target")
+            frame = pd.concat([data, extra], axis=1)
+            cols = base_cols + list(extra.columns)
+        test_mask = data["subject"].isin(test_s).to_numpy()
+        if method != "population":
+            test_mask = test_mask & data["eval_night"].to_numpy()
+        train_rows = frame[in_train.to_numpy() & usable]
+        test_rows = frame[test_mask]
+        # A personal feature can be missing for every training row (e.g. no one had N1 on
+        # their first night); it carries no information and breaks tree binning.
+        cols = [c for c in cols if train_rows[c].notna().any()]
+        proba, info = _fit_predict(cfg, train_rows, test_rows, cols, fit_s, val_s, seed, tuned)
+        if method == "population" and cfg.model == "hgb":
+            tuned = info["params"]  # personalized variants reuse the tuned hyperparameters
+        entry[f"{method}_{n}"] = info
+        out = test_rows[["subject", "night", "epoch", "eval_night", "covered", "_truth"]]
+        out = out.rename(columns={"_truth": "y_true"}).assign(fold=fold, method=method, n_prior=n)
+        out[PROBA_COLUMNS] = proba
+        predictions.append(out[out["y_true"] != UNKNOWN])
+        emit(f"fold {fold} {method} N={n}: {len(test_rows)} test epochs")
+    return predictions, entry, messages
 
 
 def compute_metrics(pred: pd.DataFrame, n_boot: int, seed: int) -> dict:

@@ -93,7 +93,7 @@ Newest entries last. Each entry gives the decision and the reason for it.
     subjects with the selected number of rounds.
 27. **GRU size chosen for speed on fold 0's validation subjects.** One 48-unit bidirectional layer
     matched two 64-unit layers (validation macro-F1 0.536 vs 0.539) at about half the training
-    time; CPU is faster than MPS for this model and is deterministic.
+    time (measured with the packed-sequence implementation that decision 32 replaced).
 28. **The label-using upper bound is `prior_stage` features, not fine-tuning.** Continuing to
     boost on a person's own nights fails whenever a stage is missing from them (common for N1),
     and features keep both models comparable: per-stage heart rate and activity, and the stage
@@ -110,3 +110,13 @@ Newest entries last. Each entry gives the decision and the reason for it.
 31. **The heart-rate sample count stays out of the features.** The dataset authors report that HR
     sampling frequency improves their model; Phase 1 found it slightly lower during Wake, i.e. a
     device artefact. Results here are therefore not directly comparable to theirs on accuracy.
+32. **The GRU trains on CPU, with folds in parallel; MPS was measured and rejected.** On fold 0,
+    one training epoch (batch of 8 nights) took 9.4 s on MPS against 2.4 s on one CPU thread, and
+    MPS stayed slower at batches of 32 (3.0 vs 1.0 s) and 64 (1.8 vs 0.9 s): each night is ~1,000
+    sequential steps, so the GPU waits on per-step dispatch. The bidirectional layer runs two
+    forward GRUs, the second over each night reversed within its own length, instead of
+    `nn.GRU(bidirectional=True)` on packed sequences: the same function (tested to 1e-6), 3x
+    faster on CPU. One thread is as fast as four, so `--jobs 5` trains the five folds in
+    parallel; each fold is seeded on its own, and a test checks that predictions don't depend on
+    `--jobs`. `device: mps` remains available (same outputs to within 1e-6, not bitwise
+    reproducible).

@@ -159,6 +159,13 @@ def train(
     fold: Annotated[
         list[int] | None, typer.Option(help="Run only these folds (quick checks; marked partial).")
     ] = None,
+    jobs: Annotated[
+        int,
+        typer.Option(
+            help="Folds trained in parallel. Results don't depend on it. Use 1 for "
+            "boosting, which already uses every core."
+        ),
+    ] = 1,
 ) -> None:
     """Run a cross-validated staging experiment and save predictions and metrics."""
     from sleepwatch.features.build import load_build
@@ -173,8 +180,10 @@ def train(
     settings = get_settings()
     epochs, _, build = load_build(cfg.features, settings.processed_dir)
     folds = load_folds()
-    console.print(f"Experiment '{cfg.name}' ({cfg.model}); folds: {cfg.folds or 'all'}")
-    pred, fold_log = run_folds(cfg, epochs, folds, log=console.print)
+    console.print(
+        f"Experiment '{cfg.name}' ({cfg.model}); folds: {cfg.folds or 'all'}; jobs: {jobs}"
+    )
+    pred, fold_log = run_folds(cfg, epochs, folds, log=console.print, jobs=jobs)
     metrics = compute_metrics(pred, cfg.n_boot, cfg.seed)
     run_dir = save_run(
         cfg,
@@ -182,7 +191,7 @@ def train(
         fold_log,
         metrics,
         settings.results_dir,
-        extra={"features_build": build, "splits_file": str(SPLITS_FILE)},
+        extra={"features_build": build, "splits_file": str(SPLITS_FILE), "jobs": jobs},
     )
     pooled = metrics["population"]["all"]["5"]["pooled"]
     console.print(

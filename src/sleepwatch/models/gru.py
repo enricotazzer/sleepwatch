@@ -4,20 +4,25 @@ Inputs are the epoch features (heavy-tailed motion features log-transformed), ro
 statistics from the training subjects, with missing values set to 0 plus two availability flags
 (heart rate present, motion present; the same information the trees get from NaNs). Unknown
 labels are ignored in the loss. Training stops early on validation macro-F1 measured on held-out
-*training* subjects, and the best epoch's weights are kept. Runs on CPU, which is faster than MPS
-for this model size and deterministic.
+*training* subjects, and the best epoch's weights are kept.
+
+Runs on CPU by default. A GRU steps through ~1,000 epochs per night one at a time, and with
+batches of 8 nights an Apple GPU is limited by per-step dispatch overhead: on fold 0, one training
+epoch took 9.4 s on MPS against 2.4 s on one CPU thread (and MPS stayed slower at batch sizes 32
+and 64). ``device: mps`` is supported and gives the same outputs to within 1e-6; it is not
+bitwise reproducible.
 """
 
 from __future__ import annotations
 
 import copy
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 import torch
 from pydantic import BaseModel, ConfigDict
 from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from sleepwatch.constants import UNKNOWN
 from sleepwatch.models.hgb import macro_f1
@@ -42,7 +47,9 @@ class GRUConfig(BaseModel):
     max_epochs: int = 40
     patience: int = 6
     clip: float = 1.0
-    threads: int = 4
+    # One thread is as fast as four at this size; speed comes from training folds in parallel.
+    threads: int = 1
+    device: Literal["cpu", "mps", "cuda"] = "cpu"
 
 
 class Preprocessor:
@@ -75,27 +82,42 @@ class Preprocessor:
         return len(self.columns) + 2
 
 
+def reverse_within(x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    """Reverse the first ``lengths[i]`` steps of each padded sequence; padding stays at the end."""
+    steps = torch.arange(x.shape[1], device=x.device).unsqueeze(0)
+    lengths = lengths.to(x.device).unsqueeze(1)
+    index = torch.where(steps < lengths, lengths - 1 - steps, steps)
+    return x.gather(1, index.unsqueeze(-1).expand_as(x))
+
+
 class Net(nn.Module):
+    """Bidirectional GRU on padded batches.
+
+    Each layer runs one forward GRU over the night and one over the night reversed within its own
+    length, so padding never reaches a real epoch in either direction. This is the same function
+    as ``nn.GRU(bidirectional=True)`` on packed sequences (tested), and 3x faster on CPU.
+    """
+
     def __init__(self, n_inputs: int, cfg: GRUConfig):
         super().__init__()
         self.inp = nn.Sequential(
             nn.Dropout(cfg.input_dropout), nn.Linear(n_inputs, cfg.hidden), nn.GELU()
         )
-        self.gru = nn.GRU(
-            cfg.hidden,
-            cfg.hidden,
-            num_layers=cfg.layers,
-            batch_first=True,
-            bidirectional=True,
-            dropout=cfg.dropout if cfg.layers > 1 else 0.0,
-        )
+        sizes = [cfg.hidden] + [2 * cfg.hidden] * (cfg.layers - 1)
+        self.fwd = nn.ModuleList(nn.GRU(n, cfg.hidden, batch_first=True) for n in sizes)
+        self.bwd = nn.ModuleList(nn.GRU(n, cfg.hidden, batch_first=True) for n in sizes)
+        self.drop = nn.Dropout(cfg.dropout)  # between layers, as in nn.GRU
         self.out = nn.Linear(2 * cfg.hidden, N_CLASSES)
 
     def forward(self, x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
-        packed = pack_padded_sequence(self.inp(x), lengths, batch_first=True, enforce_sorted=False)
-        hidden, _ = self.gru(packed)
-        hidden, _ = pad_packed_sequence(hidden, batch_first=True, total_length=x.shape[1])
-        return self.out(hidden)
+        h = self.inp(x)
+        for layer, (fwd, bwd) in enumerate(zip(self.fwd, self.bwd, strict=True)):
+            if layer:
+                h = self.drop(h)
+            forward, _ = fwd(h)
+            backward, _ = bwd(reverse_within(h, lengths))
+            h = torch.cat([forward, reverse_within(backward, lengths)], dim=-1)
+        return self.out(h)
 
 
 def night_arrays(df: pd.DataFrame, prep: Preprocessor, target: str | None):
@@ -137,11 +159,12 @@ def _pad(items):
 def predict(model: Net, items, batch_size: int = 16) -> list[np.ndarray]:
     """Class probabilities ``(epochs, 5)`` for each night, in input order."""
     model.eval()
+    device = next(model.parameters()).device
     out = []
     for start in range(0, len(items), batch_size):
         batch = items[start : start + batch_size]
         x, _, lengths = _pad(batch)
-        proba = torch.softmax(model(x, lengths), dim=-1).numpy()
+        proba = torch.softmax(model(x.to(device), lengths), dim=-1).cpu().numpy()
         out.extend(proba[i, : int(n)] for i, n in enumerate(lengths))
     return out
 
@@ -156,10 +179,12 @@ def _validation_f1(model, items) -> float:
 
 def train(train_items, val_items, n_inputs: int, cfg: GRUConfig, seed: int):
     """Train with early stopping on validation macro-F1; returns ``(model, history)``."""
+    if cfg.device == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError("device 'mps' requested but MPS is not available")
     torch.set_num_threads(cfg.threads)
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
-    model = Net(n_inputs, cfg)
+    model = Net(n_inputs, cfg).to(cfg.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     loss_fn = nn.CrossEntropyLoss(ignore_index=IGNORE)
     best = (-1.0, 0, copy.deepcopy(model.state_dict()))
@@ -169,6 +194,7 @@ def train(train_items, val_items, n_inputs: int, cfg: GRUConfig, seed: int):
         order = rng.permutation(len(train_items))
         for start in range(0, len(order), cfg.batch_size):
             x, y, lengths = _pad([train_items[i] for i in order[start : start + cfg.batch_size]])
+            x, y = x.to(cfg.device), y.to(cfg.device)
             optimizer.zero_grad()
             loss = loss_fn(model(x, lengths).reshape(-1, N_CLASSES), y.reshape(-1))
             loss.backward()
