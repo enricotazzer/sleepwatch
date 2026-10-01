@@ -68,3 +68,10 @@ Newest entries last. Each entry gives the decision and the reason for it.
 21. **Malformed CSV rows are skipped and counted, not fatal.** Three files in `Bidslab42` end in a
     partial record. Rows with the wrong number of fields are skipped and recorded as
     `*_malformed_rows` in the quality table; anything else unexpected still fails loudly.
+22. **Label timing: documented alignment is primary (user decision).** Headline Phase 2 results use
+    the dataset's stated alignment, so they stay comparable with other work on this dataset. A
+    sensitivity analysis re-runs the key experiments with the expert labels shifted by the offset
+    estimated on training subjects only, and reports the difference.
+23. **`Bidslab01/4` stays in (user decision).** It is used like any other night, despite its expert
+    labels disagreeing with Dreem at every lag. Results report its per-night scores so its effect is
+    visible.

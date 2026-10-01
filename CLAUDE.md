@@ -44,7 +44,8 @@ uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipyn
 - All 253 nights are checksum-verified (2026-10-01); `data/raw` points to the unzipped ZIP on the T7.
 - Open issues (docs/data.md): expert labels appear to run ~3 epochs (90 s) late relative to the
   signals, a constant offset (Dreem doesn't), and `Bidslab01/4` has suspect expert labels.
-  Neither is corrected yet.
+  Decided: headline results use the documented alignment, with a shifted-label sensitivity
+  analysis (offset estimated on training subjects only); `Bidslab01/4` is kept.
 - The T7 is exFAT (no symlinks, `._*` litter): the repo and venv stay on the internal disk, which
   has little free space, so raw data and large caches stay on the T7.
 
