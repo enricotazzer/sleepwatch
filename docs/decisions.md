@@ -130,3 +130,52 @@ Newest entries last. Each entry gives the decision and the reason for it.
     variant beat the matched control. Changing the personal features after seeing these
     cross-validated results would be tuning on the test subjects. Any new design would be a new,
     pre-declared experiment that is reported alongside this one.
+
+## Phase 2b: more personalization designs (protocol fixed before any run, 2026-10-01)
+
+35. **Ground rules.** Three more personalization designs are tested with Phase 2's folds,
+    seeds, evaluation nights (night 4 onward of the 43 subjects with at least 4 nights) and
+    metrics. Each method's primary result is the pooled 5-class kappa difference against its
+    control on the evaluation nights, with a paired subject bootstrap (1,000 draws). Every variant
+    is reported whatever the outcome. No design changes after seeing test-fold results;
+    hyperparameters are chosen on each fold's validation subjects only. The two offset nights
+    stay in (decision 33). That makes about 12 comparisons with no multiplicity correction, so one
+    CI excluding zero is weak evidence on its own.
+36. **A · baseline from all earlier nights (label-free), `expanding_norm`.** For night *r*,
+    `prior_norm`'s 12 features (decision 28's label-free counterpart) are computed from nights
+    1..*r*−1 after the estimated onset. Night 1 has no baseline: NaN for the trees; zeros plus an
+    availability flag for the GRU. Models train on all training nights, so the control is the
+    population model trained on exactly the same nights. Both models; the trees reuse the fold's
+    tuned grid point and the GRU uses Phase 2's settings.
+37. **B · learned person summary (label-free for the person), `context`.**
+    - **Encoder:** each earlier night's preprocessed epoch features go through a per-epoch
+      linear layer (32 units, GELU), then mean and SD over the night, then a linear layer to 16
+      numbers.
+    - **Person summary:** the average over all strictly earlier nights. It is appended, with a
+      has-context flag, to every epoch's input of the Phase 2 GRU (same size and training
+      settings), and the whole model is trained end to end on training subjects' labels.
+    - **Against memorizing training subjects:** dropout 0.3 on the summary, and during training
+      each earlier night is dropped with probability 0.3.
+    - **Controls:**
+      - the population GRU;
+      - `context_shuffled`: the same model given a different person's nights. Pairing is fixed and
+        random, within the training subjects and within each fold's test subjects, using the
+        partner's first *r*−1 nights or as many as they have.
+38. **C · fine-tuning (uses labels; an upper bound), `finetune`.**
+    - **Procedure:** for each test subject, a copy of the fold's population GRU is fine-tuned on
+      their first N nights (N = 1, 2, 3) and scored on their evaluation nights. Separately, for
+      each evaluation night *r*, a copy is fine-tuned on nights 1..*r*−1 (`all`).
+    - **Training details:** full batch, AdamW, and no early stopping. Weight decay is replaced by
+      0.01 × the squared distance from the population weights. Dropout is as in training.
+    - **Grid:** learning rate {1e-4, 1e-3} × epochs {5, 20} × trained layers {output layer, all}.
+      One grid point is picked per fold, by pooled 5-class kappa when the same procedure (all four
+      variants) runs on the fold's validation subjects. The population GRU never fitted on them;
+      they only set its early stopping.
+    - **Controls:**
+      - the population GRU;
+      - `finetune_other`: fine-tuning on another test subject's nights of the same count. Pairing
+        is fixed and random within the fold; the partner's first N or *r*−1 nights, or as many as
+        they have.
+39. **All Phase 2 experiments are rerun at the Phase 2b commit.** Phase 2b changes the experiment
+    code. Rerunning puts every reported run on one commit, and the review notebook checks that
+    the reruns reproduce the earlier Phase 2 predictions exactly.
