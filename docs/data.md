@@ -31,42 +31,54 @@ covers `[recStart + 30k, recStart + 30(k+1))`. The dataset README uses 1-based
 
 ## Known quirks
 
-From the 52 checksum-verified nights available on 2026-09-30 (9 subjects), via the Phase 1
-loader, the quality table and notebook `01_eda`. They must be re-checked once all 253 nights are
-verified.
+From all 253 nights, checksum-verified on 2026-10-01, via the loader, the quality table
+(`data/processed/quality_v1.csv`) and notebook `01_eda`. Recordings run from 2021-07-26 to
+2022-09-18.
 
-- **Signal files don't match the label window.** Heart rate and motion start between 7 min before
-  and 48 min after `recStart`. They end anywhere from 154 min before the last label to 72 h after
-  it, and raw files contain gaps of up to about 10 h. Crop to the label window and keep a coverage
-  mask per epoch; don't interpolate across long gaps.
-- **Sampling varies by night.** Heart rate comes every 5 s on 51 of the 52 nights and every 2 s on
-  `Bidslab00/2`. Motion runs at about 50 Hz, except three nights at about 33 Hz and one at about
-  64 Hz, with some jitter. Features are computed on uniform grids so they don't depend on the rate.
-  The data is too coarse for HRV.
-- **Partial coverage inside the window.** 1.6% of epochs have no heart rate and 3.4% no motion.
-  The watch stopped 154 min early on `Bidslab01/3`, and `Bidslab08/7` has motion for only 19% of
-  the night.
-- **Label lengths can differ.** `Bidslab01/4` has 935 `dreem_label` epochs but only 771
-  `expert_label` epochs.
-- **Unknown epochs.** 175 of 45,125 expert epochs (0.4%, in 11 nights) are Unknown.
-- **Duplicate timestamps.** Two nights repeat 1–2 heart-rate timestamps.
-- **`recStart` time zone.** Interpreting `recStart` as US Eastern time is confirmed: signals start
-  a median of 0.6 min before it. Recordings start between 21:00 and 02:00, so a start during the
-  autumn DST change is ambiguous and has to be resolved explicitly, for example against the signal
-  start time.
-- **Dreem vs expert agreement.** Pooled Cohen's kappa is 0.74 (5-class) and 0.81 (4-class), with a
-  per-night median of 0.75. Most disagreement is N1, which Dreem calls N2 60% of the time. Because
-  the expert labels are corrections of the Dreem labels, this is not an independent inter-rater
-  agreement.
-- **The expert labels appear to run 60–90 s late (open issue).** With the documented alignment,
+- **Signal files don't match the label window.** Heart rate and motion start between 39 min before
+  and 122 min after `recStart`. They end anywhere from 4.5 h before the last label to 95 h after
+  it. The loader crops to the label window, and coverage masks mark the gaps; gaps are never
+  interpolated. 2.7% of labelled epochs have no heart rate and 5.0% have no motion.
+- **Some nights have little usable signal.** 44 nights are under 90% coverage on one signal:
+  - 7 have motion for under a third of the night (`Bidslab42/3` 1%, `Bidslab49/1` 12%,
+    `Bidslab08/7` 19%, `Bidslab16/2` 24%, `Bidslab17/3` 30%, `Bidslab42/1` 30%,
+    `Bidslab60/1` 32%);
+  - on 12 nights the watch stops about an hour before the labels end, while the labels show the
+    person still asleep (mostly N2/N1);
+  - `Bidslab01/3` stops 154 min early and `Bidslab34/1` 272 min early.
+- **Truncated last rows.** `Bidslab42/3` (`hr.csv`, `motion.csv`) and `Bidslab42/4`
+  (`motion.csv`) end in a partial record. The loader skips rows with the wrong number of fields
+  and counts them (`*_malformed_rows`).
+- **Sampling varies by night.** Heart rate comes every 5 s on 252 nights and every 2 s on
+  `Bidslab00/2`. Motion runs at about 50 Hz, with four nights at about 33 Hz and four at about
+  64 Hz, plus some jitter. Features are computed on uniform grids so they don't depend on the
+  rate. The data is too coarse for HRV.
+- **Label lengths can differ.** `Bidslab01/4` has 935 Dreem epochs against 771 expert epochs, and
+  `Bidslab30/6` has 849 against 851. Dreem labels are cut or padded to the expert length.
+- **Unknown epochs.** 2,363 expert epochs (1.1%, in 62 nights) are Unknown; they are masked.
+- **Duplicate timestamps.** 11 nights repeat a few heart-rate timestamps; their values are
+  averaged.
+- **`recStart` time zone.** Interpreting it as US Eastern time is confirmed by the signals starting
+  within about a minute of it on typical nights. No recording starts in a DST-ambiguous hour; the
+  loader resolves such cases against the signal start anyway. All subjects' nights are in date
+  order.
+- **Dreem vs expert agreement.** Pooled Cohen's kappa is 0.75 (5-class) and 0.82 (4-class), with a
+  per-night median of 0.75. Most disagreement is N1. Because the expert labels are corrections of
+  the Dreem labels, this is not an independent inter-rater agreement.
+- **The expert labels appear to run about 90 s late (open issue).** With the documented alignment,
   activity and heart rate separate expert-Wake from sleep best when label epoch `k` is paired with
-  signal epoch `k-2` or `k-3`; this holds on 49 of 51 nights. Dreem labels line up within one
-  epoch, and expert labels match Dreem best when shifted by 1–2 epochs. The documentation doesn't
-  mention an offset. `sleepwatch.data.label_timing` reproduces the check, and notebook
-  `01_eda` (section 9) shows it. No correction is applied yet; that decision belongs to Phase 2.
-- **`Bidslab01/4` has suspect expert labels.** They cover 771 epochs against Dreem's 935, agree with
-  Dreem on 22% of epochs (kappa −0.03), and no shift within ±200 epochs repairs this. The proposal
-  is to exclude this night from evaluation.
+  signal epoch `k-3`. That holds on the averaged curve and as the per-night median, with most
+  subjects between −2 and −5. The offset is the same in the first and second halves of the night,
+  so it is constant rather than clock drift. Dreem labels peak at −1 for activity and 0 for heart
+  rate, consistent with movement slightly preceding EEG-scored Wake. The expert labels match Dreem
+  best when shifted by 1–2 epochs. The documentation says both share `recStart` (recorded on one
+  iPhone) and doesn't mention any offset. `sleepwatch.data.label_timing` reproduces the check, and
+  notebook `01_eda` (section 9) shows it. No correction is applied yet; that decision belongs to
+  Phase 2.
+- **`Bidslab01/4` has suspect expert labels.** They agree with Dreem on 22% of epochs (kappa
+  −0.03), and no shift repairs this. The proposal is to exclude this night from evaluation.
+  `Bidslab47/2` (kappa 0.47) is the only other night under 0.5 and behaves like a genuinely hard
+  night.
 
 ## Epoch table (feature set `v1`)
 

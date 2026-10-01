@@ -41,8 +41,10 @@ uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipyn
 - Stages: 0 Wake, 1 N1, 2 N2, 3 N3, 4 REM, 5 Unknown. Epoch k (0-based) covers
   `[recStart + 30k, recStart + 30(k+1))`.
 - Signal files overhang the label window (up to days) or start/end inside it: always crop and mask.
-- Open issues (docs/data.md): expert labels appear to run 2–3 epochs late relative to the signals
-  (Dreem doesn't), and `Bidslab01/4` has suspect expert labels. Neither is corrected yet.
+- All 253 nights are checksum-verified (2026-10-01); `data/raw` points to the unzipped ZIP on the T7.
+- Open issues (docs/data.md): expert labels appear to run ~3 epochs (90 s) late relative to the
+  signals, a constant offset (Dreem doesn't), and `Bidslab01/4` has suspect expert labels.
+  Neither is corrected yet.
 - The T7 is exFAT (no symlinks, `._*` litter): the repo and venv stay on the internal disk, which
   has little free space, so raw data and large caches stay on the T7.
 

@@ -106,3 +106,17 @@ def test_real_nights_load_inside_their_label_window():
             assert signal["t"].between(night.rec_start, night.end, inclusive="left").all()
             assert signal["t"].is_monotonic_increasing and signal["t"].is_unique
         assert len(night.dreem) == night.n_epochs > 0
+
+
+def test_truncated_last_rows_are_skipped_and_counted(tmp_path):
+    """As in Bidslab42/3-4: the recording stopped mid-record, leaving a partial last line."""
+    night = write(tmp_path)
+    folder = tmp_path / "Bidslab99" / "1"
+    with open(folder / "hr.csv", "a") as fh:
+        fh.write(f"{REC_START + 100.5}\n")
+    with open(folder / "motion.csv", "a") as fh:
+        fh.write(f"{REC_START + 100.5},-0.8913\n")
+    loaded = load_night(tmp_path, "Bidslab99", 1)
+    assert loaded.quality["hr_malformed_rows"] == 1
+    assert loaded.quality["motion_malformed_rows"] == 1
+    assert len(loaded.hr) == len(night.hr) and len(loaded.motion) == len(night.motion)

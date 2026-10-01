@@ -12,6 +12,8 @@ These functions test that empirically, without assuming it:
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -31,11 +33,9 @@ def wake_separation_by_lag(
         sleep = (labels != UNKNOWN) & (labels != WAKE)
         for lag in lags:
             signal = night[feature].shift(-lag).to_numpy()  # value at epoch k + lag
-            separation = (
-                np.nanmean(signal[wake]) - np.nanmean(signal[sleep])
-                if wake.any() and sleep.any()
-                else np.nan
-            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)  # no signal left in a class
+                separation = np.nanmean(signal[wake]) - np.nanmean(signal[sleep])
             rows.append(
                 {**dict(zip(NIGHT_KEYS, key, strict=True)), "lag": lag, "separation": separation}
             )

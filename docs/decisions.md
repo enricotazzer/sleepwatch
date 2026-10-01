@@ -59,3 +59,12 @@ Newest entries last. Each entry gives the decision and the reason for it.
 19. **Label timing is measured, not assumed.** `data/label_timing.py` estimates label-to-signal
     offsets. It found the expert labels about 2–3 epochs late (see docs/data.md). No shift is
     applied until a decision in Phase 2.
+
+## 2026-10-01 — Phase 1 on the full dataset
+
+20. **The raw folder is the unzipped PhysioNet ZIP** at
+    `/Volumes/T7/a-multi-night-instantaneous-heart-rate-and-accelerometry-dataset-with-eeg-sleep-stage-labels-1.0.1`.
+    All 761 files pass their checksums. The old partial wget mirror is no longer used.
+21. **Malformed CSV rows are skipped and counted, not fatal.** Three files in `Bidslab42` end in a
+    partial record. Rows with the wrong number of fields are skipped and recorded as
+    `*_malformed_rows` in the quality table; anything else unexpected still fails loudly.

@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+import pyarrow.csv as pacsv
 from scipy.io import loadmat
 
 from sleepwatch.constants import (
@@ -80,20 +81,47 @@ def read_labels(path: Path) -> tuple[str, np.ndarray, np.ndarray]:
     return rec_start, expert, dreem
 
 
-def read_hr(path: Path) -> tuple[pd.DataFrame, int]:
-    """Heart rate sorted by time with duplicate timestamps averaged; also the duplicate count."""
-    hr = pd.read_csv(path, header=None, names=["t", "hr"], engine="pyarrow")
+def _read_csv(path: Path, column_names: list[str] | None = None) -> tuple[pd.DataFrame, int]:
+    """Read a CSV with pyarrow, skipping rows with the wrong number of fields.
+
+    Some files end in a partial record written as the recording stopped. Those rows are skipped
+    and counted rather than failing the night or being guessed at.
+    """
+    skipped = 0
+
+    def skip(row: pacsv.InvalidRow) -> str:
+        nonlocal skipped
+        skipped += 1
+        return "skip"
+
+    table = pacsv.read_csv(
+        path,
+        read_options=pacsv.ReadOptions(column_names=column_names),
+        parse_options=pacsv.ParseOptions(invalid_row_handler=skip),
+    )
+    return table.to_pandas(), skipped
+
+
+def read_hr(path: Path) -> tuple[pd.DataFrame, int, int]:
+    """Heart rate sorted by time with duplicate timestamps averaged.
+
+    Returns ``(hr, duplicate_count, malformed_row_count)``.
+    """
+    hr, malformed = _read_csv(path, column_names=["t", "hr"])
     if not all(pd.api.types.is_numeric_dtype(hr[c]) for c in hr):
         raise ValueError(f"{path}: expected two numeric columns (unix time, bpm) and no header")
     hr = hr.dropna()
     n_dup = int(hr["t"].duplicated().sum())
     hr = hr.groupby("t", as_index=False)["hr"].mean() if n_dup else hr.sort_values("t")
-    return hr.reset_index(drop=True), n_dup
+    return hr.reset_index(drop=True), n_dup, malformed
 
 
-def read_motion(path: Path) -> tuple[pd.DataFrame, int]:
-    """Accelerometry sorted by time with duplicate timestamps dropped; also the duplicate count."""
-    motion = pd.read_csv(path, engine="pyarrow")
+def read_motion(path: Path) -> tuple[pd.DataFrame, int, int]:
+    """Accelerometry sorted by time with duplicate timestamps dropped.
+
+    Returns ``(motion, duplicate_count, malformed_row_count)``.
+    """
+    motion, malformed = _read_csv(path)
     if list(motion.columns) != MOTION_HEADER:
         raise ValueError(f"{path}: expected header {MOTION_HEADER}, got {list(motion.columns)}")
     motion.columns = ["t", "x", "y", "z"]
@@ -101,7 +129,7 @@ def read_motion(path: Path) -> tuple[pd.DataFrame, int]:
     if not motion["t"].is_monotonic_increasing:
         motion = motion.sort_values("t", kind="stable")
     dup = motion["t"].duplicated()
-    return motion[~dup].reset_index(drop=True), int(dup.sum())
+    return motion[~dup].reset_index(drop=True), int(dup.sum()), malformed
 
 
 def _offsets(t: pd.Series, start: float, end: float) -> dict:
@@ -117,8 +145,8 @@ def _offsets(t: pd.Series, start: float, end: float) -> dict:
 def load_night(raw_dir: Path, subject: str, night: int) -> Night:
     folder = Path(raw_dir) / subject / str(night)
     rec_local, expert, dreem_raw = read_labels(folder / LABELS_FILE)
-    hr_raw, hr_dup = read_hr(folder / HR_FILE)
-    motion_raw, motion_dup = read_motion(folder / MOTION_FILE)
+    hr_raw, hr_dup, hr_bad = read_hr(folder / HR_FILE)
+    motion_raw, motion_dup, motion_bad = read_motion(folder / MOTION_FILE)
 
     firsts = [s["t"].iloc[0] for s in (hr_raw, motion_raw) if not s.empty]
     rec_start, ambiguous = rec_start_to_unix(rec_local, near=min(firsts) if firsts else None)
@@ -142,10 +170,12 @@ def load_night(raw_dir: Path, subject: str, night: int) -> Night:
         "hr_rows_raw": len(hr_raw),
         "hr_rows": len(hr),
         "hr_duplicate_ts": hr_dup,
+        "hr_malformed_rows": hr_bad,
         **{f"hr_{k}": v for k, v in _offsets(hr_raw["t"], rec_start, end).items()},
         "motion_rows_raw": len(motion_raw),
         "motion_rows": len(motion),
         "motion_duplicate_ts": motion_dup,
+        "motion_malformed_rows": motion_bad,
         **{f"motion_{k}": v for k, v in _offsets(motion_raw["t"], rec_start, end).items()},
     }
     return Night(subject, night, rec_start, rec_local, expert, dreem, hr, motion, quality)
