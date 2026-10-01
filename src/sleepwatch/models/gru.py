@@ -53,8 +53,14 @@ class GRUConfig(BaseModel):
 
 
 class Preprocessor:
-    def __init__(self, columns: list[str]):
+    """Log-transform, robust-scale and zero-fill ``columns``, plus availability flags.
+
+    ``flags`` are columns whose presence (not NaN) is passed as an extra 0/1 input.
+    """
+
+    def __init__(self, columns: list[str], flags: tuple[str, ...] = ("hr_mean", "activity")):
         self.columns = list(columns)
+        self.flags = tuple(flags)
         self.log = np.array([c.startswith(LOG_PREFIXES) for c in self.columns])
 
     def _raw(self, df: pd.DataFrame) -> np.ndarray:
@@ -72,14 +78,12 @@ class Preprocessor:
 
     def transform(self, df: pd.DataFrame) -> np.ndarray:
         z = np.clip((self._raw(df) - self.center) / self.scale, -10, 10)
-        flags = np.column_stack(
-            [np.isfinite(df[c].to_numpy(dtype=float)) for c in ("hr_mean", "activity")]
-        )
+        flags = np.column_stack([np.isfinite(df[c].to_numpy(dtype=float)) for c in self.flags])
         return np.hstack([np.nan_to_num(z), flags]).astype(np.float32)
 
     @property
     def n_inputs(self) -> int:
-        return len(self.columns) + 2
+        return len(self.columns) + len(self.flags)
 
 
 def reverse_within(x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
@@ -145,46 +149,59 @@ def night_arrays(df: pd.DataFrame, prep: Preprocessor, target: str | None):
 
 
 def _pad(items):
-    lengths = torch.tensor([len(x) for _, x, _ in items])
+    """Pad items ``(key, x, y, ...)`` into ``x``, ``y`` and the lengths."""
+    lengths = torch.tensor([len(item[1]) for item in items])
     t = int(lengths.max())
     x = torch.zeros(len(items), t, items[0][1].shape[1])
     y = torch.full((len(items), t), IGNORE, dtype=torch.long)
-    for i, (_, xi, yi) in enumerate(items):
-        x[i, : len(xi)] = torch.from_numpy(xi)
-        y[i, : len(yi)] = torch.from_numpy(yi)
+    for i, item in enumerate(items):
+        x[i, : len(item[1])] = torch.from_numpy(item[1])
+        y[i, : len(item[2])] = torch.from_numpy(item[2])
     return x, y, lengths
 
 
+def collate(items, device):
+    """Model inputs and labels for a batch of ``(key, x, y)`` nights."""
+    x, y, lengths = _pad(items)
+    return (x.to(device), lengths), y.to(device)
+
+
 @torch.no_grad()
-def predict(model: Net, items, batch_size: int = 16) -> list[np.ndarray]:
+def predict(model: nn.Module, items, batch_size: int = 16, collate_fn=collate) -> list[np.ndarray]:
     """Class probabilities ``(epochs, 5)`` for each night, in input order."""
     model.eval()
     device = next(model.parameters()).device
     out = []
     for start in range(0, len(items), batch_size):
         batch = items[start : start + batch_size]
-        x, _, lengths = _pad(batch)
-        proba = torch.softmax(model(x.to(device), lengths), dim=-1).cpu().numpy()
-        out.extend(proba[i, : int(n)] for i, n in enumerate(lengths))
+        inputs, _ = collate_fn(batch, device)
+        proba = torch.softmax(model(*inputs), dim=-1).cpu().numpy()
+        out.extend(proba[i, : len(item[1])] for i, item in enumerate(batch))
     return out
 
 
-def _validation_f1(model, items) -> float:
-    probas = predict(model, items)
-    y = np.concatenate([yi for _, _, yi in items])
+def _validation_f1(model, items, collate_fn) -> float:
+    probas = predict(model, items, collate_fn=collate_fn)
+    y = np.concatenate([item[2] for item in items])
     y_hat = np.concatenate([p.argmax(axis=1) for p in probas])
     keep = y != IGNORE
     return macro_f1(y[keep], y_hat[keep])
 
 
-def train(train_items, val_items, n_inputs: int, cfg: GRUConfig, seed: int):
-    """Train with early stopping on validation macro-F1; returns ``(model, history)``."""
+def train(
+    train_items, val_items, n_inputs: int, cfg: GRUConfig, seed: int, build=Net, collate_fn=collate
+):
+    """Train with early stopping on validation macro-F1; returns ``(model, history)``.
+
+    ``build(n_inputs, cfg)`` makes the model and ``collate_fn`` turns a batch of items into its
+    inputs, so models with extra inputs (``models.context``) share this loop.
+    """
     if cfg.device == "mps" and not torch.backends.mps.is_available():
         raise RuntimeError("device 'mps' requested but MPS is not available")
     torch.set_num_threads(cfg.threads)
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
-    model = Net(n_inputs, cfg).to(cfg.device)
+    model = build(n_inputs, cfg).to(cfg.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     loss_fn = nn.CrossEntropyLoss(ignore_index=IGNORE)
     best = (-1.0, 0, copy.deepcopy(model.state_dict()))
@@ -193,15 +210,15 @@ def train(train_items, val_items, n_inputs: int, cfg: GRUConfig, seed: int):
         model.train()
         order = rng.permutation(len(train_items))
         for start in range(0, len(order), cfg.batch_size):
-            x, y, lengths = _pad([train_items[i] for i in order[start : start + cfg.batch_size]])
-            x, y = x.to(cfg.device), y.to(cfg.device)
+            batch = [train_items[i] for i in order[start : start + cfg.batch_size]]
+            inputs, y = collate_fn(batch, cfg.device)
             optimizer.zero_grad()
-            loss = loss_fn(model(x, lengths).reshape(-1, N_CLASSES), y.reshape(-1))
+            loss = loss_fn(model(*inputs).reshape(-1, N_CLASSES), y.reshape(-1))
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), cfg.clip)
             optimizer.step()
         epochs_run = epoch + 1
-        score = _validation_f1(model, val_items)
+        score = _validation_f1(model, val_items, collate_fn)
         if score > best[0]:
             best = (score, epoch + 1, copy.deepcopy(model.state_dict()))
         elif epoch + 1 - best[1] >= cfg.patience:

@@ -1,0 +1,4 @@
+# Phase 2b (docs/decisions.md 36): baseline from all earlier nights (label-free), for the trees.
+name: hgb_expanding
+model: hgb
+personalization: [expanding_norm]

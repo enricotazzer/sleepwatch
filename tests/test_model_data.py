@@ -5,6 +5,7 @@ import pytest
 from sleepwatch.constants import N2, UNKNOWN, WAKE
 from sleepwatch.models.data import (
     estimate_label_lag,
+    expanding_features,
     personal_features,
     prepare,
     shifted,
@@ -117,3 +118,34 @@ def test_folds_are_disjoint_complete_and_reproducible():
         assert not set(train) & set(test) and len(train) + len(test) == 23
     fit, val = inner_split(sorted(folds)[:18], 0.2, seed=1)
     assert not set(fit) & set(val) and len(val) == 4
+
+
+def test_expanding_baseline_uses_only_earlier_nights_of_the_same_subject():
+    base = epoch_table()
+    feats = expanding_features(base)
+    changed = base.copy()
+    night3 = (changed["subject"] == "A") & (changed["night"] == 3)
+    changed.loc[(changed["subject"] == "A") & (changed["night"] >= 3), "hr_mean"] += 20
+    changed.loc[changed["subject"] == "B", ["hr_mean", "activity"]] *= 3
+    after = expanding_features(changed)
+    early = (base["subject"] == "A") & (base["night"] < 3)
+    pd.testing.assert_frame_equal(feats[early], after[early])  # later nights don't matter
+    levels = ["p_hr_mean_level", "p_activity_level"]
+    pd.testing.assert_frame_equal(feats.loc[night3, levels], after.loc[night3, levels])
+    shift = after.loc[night3, "p_hr_mean_diff"] - feats.loc[night3, "p_hr_mean_diff"]
+    assert np.allclose(shift, 20)  # the night itself is compared against the unchanged baseline
+
+
+def test_expanding_baseline_matches_prior_norm_over_the_same_nights():
+    base = epoch_table()
+    night4 = base["night_rank"] == 4
+    pd.testing.assert_frame_equal(
+        expanding_features(base)[night4], personal_features(base, 3, "prior_norm")[night4]
+    )
+    assert expanding_features(base)[base["night_rank"] == 1].isna().all().all()
+
+
+def test_expanding_baseline_never_reads_labels():
+    base = epoch_table()
+    relabelled = base.assign(expert=np.random.default_rng(1).permutation(base["expert"].to_numpy()))
+    pd.testing.assert_frame_equal(expanding_features(base), expanding_features(relabelled))

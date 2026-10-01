@@ -1,0 +1,8 @@
+# Phase 2b (docs/decisions.md 35-38): three more personalization designs for the GRU, each with
+# its own control. expanding_norm: baseline from all earlier nights (label-free). context: a
+# learned summary of the person's earlier nights (label-free), control context_shuffled.
+# finetune: fine-tuning on labelled earlier nights (upper bound), control finetune_other.
+name: gru_personal
+model: gru
+personalization: [expanding_norm, context, finetune]
+n_prior: [1, 2, 3]

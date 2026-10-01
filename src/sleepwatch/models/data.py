@@ -9,6 +9,9 @@ Personal features describe a person from their *first N nights* only. Two kinds:
   their usual share of each stage.
 
 Values are filled only for nights after the first N; earlier nights get NaN and are not used.
+
+:func:`expanding_features` (Phase 2b) is ``prior_norm`` with a baseline that grows: night ``r``
+is described relative to *all* of the person's nights before it.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from sleepwatch.data.label_timing import wake_separation_by_lag
 
 NIGHT_KEYS = ["subject", "night"]
 EVAL_FIRST_NIGHT = 4  # the N-nights curve is scored on nights 4+ of subjects with >= 4 nights
+ALL_PRIOR = -1  # n_prior of variants that use every earlier night instead of the first N
 MOTION_FLOOR = 1e-5
 
 # Base signals for personal features; True = log10-transform first (heavy-tailed motion).
@@ -128,3 +132,32 @@ def personal_features(
     features = pd.DataFrame(out, index=epochs.index)
     features.loc[~target] = np.nan
     return features
+
+
+def expanding_features(epochs: pd.DataFrame) -> pd.DataFrame:
+    """``prior_norm`` features for night ``r`` from the same person's nights ``1..r-1``.
+
+    Label-free. A subject's first night has no earlier night and gets NaN.
+    """
+    values = _transformed(epochs, PRIOR_NORM_BASE)
+    asleep = (epochs["hours_since_onset"].fillna(0) >= 0).to_numpy()
+    columns = [f"p_{name}_{kind}" for name in PRIOR_NORM_BASE for kind in ("diff", "z")]
+    columns += ["p_hr_mean_level", "p_activity_level"]
+    out = pd.DataFrame(np.nan, index=epochs.index, columns=columns)
+    ranks = epochs["night_rank"].to_numpy()
+    for _, rows in epochs.groupby("subject").indices.items():
+        for rank in np.unique(ranks[rows]):
+            reference = rows[(ranks[rows] < rank) & asleep[rows]]
+            if not len(reference):
+                continue
+            ref = values.iloc[reference]
+            median, q75, q25 = ref.median(), ref.quantile(0.75), ref.quantile(0.25)
+            target = epochs.index[rows[ranks[rows] == rank]]
+            for name in PRIOR_NORM_BASE:
+                scale = max(q75[name] - q25[name], MIN_SCALE.get(name, 0.05))
+                diff = values.loc[target, name] - median[name]
+                out.loc[target, f"p_{name}_diff"] = diff
+                out.loc[target, f"p_{name}_z"] = diff / scale
+            out.loc[target, "p_hr_mean_level"] = median["hr_mean"]
+            out.loc[target, "p_activity_level"] = median["activity"]
+    return out

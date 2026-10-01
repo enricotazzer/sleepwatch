@@ -24,7 +24,7 @@ uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipyn
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/phase1_2_check.ipynb  # review checks
 uv run sleepwatch splits make             # fold file (already created; never regenerate)
 uv run sleepwatch train configs/staging/hgb_main.yaml [--fold 0] [--jobs 5]   # one experiment
-./scripts/run_staging_experiments.sh      # all Phase 2 experiments (CPU; GRU folds in parallel)
+./scripts/run_staging_experiments.sh      # all Phase 2 and 2b experiments (CPU; GRU folds in parallel)
 ```
 
 ## Layout

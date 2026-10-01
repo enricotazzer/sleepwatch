@@ -3,7 +3,9 @@ import pandas as pd
 import pytest
 
 from sleepwatch.constants import N2, N3, REM, UNKNOWN, WAKE
+from sleepwatch.models.data import ALL_PRIOR
 from sleepwatch.models.experiment import StagingConfig, compute_metrics, run_folds, save_run
+from sleepwatch.models.finetune import FinetuneConfig, FinetuneSetting
 from sleepwatch.models.gru import GRUConfig
 from sleepwatch.models.hgb import HGBConfig
 from sleepwatch.models.splits import make_folds
@@ -127,3 +129,58 @@ def test_parallel_folds_give_identical_predictions(epochs, folds, model):
     parallel, log_parallel = run_folds(cfg, epochs, folds, log=lambda *_: None, jobs=2)
     pd.testing.assert_frame_equal(serial, parallel)
     assert [e["fold"] for e in log_parallel] == [e["fold"] for e in log_serial] == [0, 1]
+
+
+QUICK_FINETUNE = FinetuneConfig(
+    grid=[
+        FinetuneSetting(lr=1e-3, epochs=2, layers="output"),
+        FinetuneSetting(lr=1e-2, epochs=3, layers="all"),
+    ]
+)
+
+
+def test_phase2b_methods_score_exactly_the_evaluation_nights(epochs, folds):
+    cfg = StagingConfig(
+        name="2b",
+        model="gru",
+        personalization=["expanding_norm", "context", "finetune"],
+        n_prior=[1, 2],
+        folds=[0, 1],
+        n_boot=20,
+        gru=QUICK_GRU,
+        finetune=QUICK_FINETUNE,
+    )
+    pred, fold_log = run_folds(cfg, epochs, folds, log=lambda *_: None)
+    population = pred[pred["method"] == "population"]
+    eval_rows = population[population["eval_night"]]
+    expected = {("expanding_norm", ALL_PRIOR), ("context", ALL_PRIOR)}
+    expected |= {("context_shuffled", ALL_PRIOR)}
+    expected |= {(m, n) for m in ("finetune", "finetune_other") for n in (1, 2, ALL_PRIOR)}
+    variants = pred[pred["method"] != "population"].groupby(["method", "n_prior"])
+    assert set(variants.groups) == expected
+    key = ["subject", "night", "epoch", "y_true"]
+    for name, rows in variants:
+        assert rows[key].reset_index(drop=True).equals(eval_rows[key].reset_index(drop=True)), name
+    for entry in fold_log:
+        chosen = entry["finetune"]["setting"]
+        assert chosen in [g.model_dump() for g in QUICK_FINETUNE.grid]
+        assert set(entry["finetune"]["validation_subjects"]) <= set(entry["val"])
+        donors = entry["finetune"]["donors"]
+        assert set(donors) <= set(entry["test"]) and all(s != d for s, d in donors.items())
+    metrics = compute_metrics(pred, n_boot=20, seed=0)
+    assert "vs_context_shuffled" in metrics["n_curve"]["context"]["all"]
+    assert "vs_finetune_other" in metrics["n_curve"]["finetune"][1]
+    assert "vs_population" in metrics["n_curve"]["expanding_norm"]["all"]
+
+
+def test_expanding_baseline_runs_with_trees(epochs, folds):
+    cfg = StagingConfig(
+        name="2b", model="hgb", personalization=["expanding_norm"], folds=[0], hgb=QUICK_HGB
+    )
+    pred, _ = run_folds(cfg, epochs, folds, log=lambda *_: None)
+    assert set(pred["method"]) == {"population", "expanding_norm"}
+
+
+def test_learned_and_finetuned_personalization_need_the_gru():
+    with pytest.raises(ValueError, match="need model: gru"):
+        StagingConfig(name="x", model="hgb", personalization=["context"])
