@@ -8,7 +8,7 @@ Research prototype, not a medical device.
 ## Workflow
 Work is split into phases 0–6 (see README). Each phase starts with a plan the user approves, and
 ends with a results summary; then wait for the go-ahead. Ask when a decision is the user's.
-Phases 0 (setup) and 1 (data pipeline + EDA) are done.
+Phases 0 (setup) and 1 (data pipeline + EDA) are done; Phase 2 (staging) is in progress.
 
 ## Commands
 ```bash
@@ -21,6 +21,9 @@ uv run sleepwatch data verify --fast     # presence/truncation check only, saves
 uv run sleepwatch data build-epochs      # epoch table from verified nights (configs/features/v1.yaml)
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipynb
 uv run jupyter nbconvert --to notebook --execute --inplace notebooks/phase1_2_check.ipynb  # review checks
+uv run sleepwatch splits make             # fold file (already created; never regenerate)
+uv run sleepwatch train configs/staging/hgb_main.yaml [--fold 0]   # one staging experiment
+./scripts/run_staging_experiments.sh      # all Phase 2 experiments (~3 h on CPU)
 ```
 
 ## Layout
@@ -28,6 +31,9 @@ uv run jupyter nbconvert --to notebook --execute --inplace notebooks/phase1_2_ch
   (dataset facts, stage codes), `cli.py`, `provenance.py` (git revision for outputs), `data/`
   (`manifest`, `loader` with `load_night`, `align`, `label_timing`), `features/`
   (`epoch_features`, `build` with `load_build`), `models/`, `anomaly/`, `agent/`, `app/`.
+- `models/`: `splits` (fixed folds), `metrics`, `data` (personal features, label shifts), `hgb`,
+  `gru`, `experiment` (config-driven runner). Experiment configs in `configs/staging/`; outputs in
+  `results/<name>/<timestamp>/` plus `results/index.csv`.
 - Epoch table: `data/processed/epochs_<name>.parquet`; model inputs are
   `feature_columns(df)`, which excludes metadata, labels and `qc_*` coverage columns.
 - `configs/`: experiment YAMLs extending `base.yaml`; `configs/splits/` holds the fold file.

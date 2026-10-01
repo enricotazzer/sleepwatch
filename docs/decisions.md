@@ -80,3 +80,33 @@ Newest entries last. Each entry gives the decision and the reason for it.
     found that whole-file statistics had misattributed the 2 s night (it is `Bidslab06/2`, not
     `Bidslab00/2`), and that `Bidslab06/2` alternates between two heart-rate levels. That night is
     flagged, not corrected.
+
+## 2026-10-01 — Phase 2 (sleep staging)
+
+25. **Gradient boosting is scikit-learn's `HistGradientBoostingClassifier`, not LightGBM.**
+    LightGBM's macOS wheel needs a system OpenMP library (Homebrew `libomp`). The scikit-learn
+    model is the same algorithm family, handles missing values, accepts a separate validation
+    set for early stopping, and adds no system dependency.
+26. **Early stopping and tuning use held-out training subjects, never random epochs.** Random
+    validation epochs would share nights with the training data. Boosting: a 6-point grid
+    (leaves x class weighting) chosen by validation macro-F1, then refitted on all training
+    subjects with the selected number of rounds.
+27. **GRU size chosen for speed on fold 0's validation subjects.** One 48-unit bidirectional layer
+    matched two 64-unit layers (validation macro-F1 0.536 vs 0.539) at about half the training
+    time; CPU is faster than MPS for this model and is deterministic.
+28. **The label-using upper bound is `prior_stage` features, not fine-tuning.** Continuing to
+    boost on a person's own nights fails whenever a stage is missing from them (common for N1),
+    and features keep both models comparable: per-stage heart rate and activity, and the stage
+    mix, from the expert labels of the first N nights.
+29. **Personalization is judged against a matched control.** A model that uses N prior nights can
+    only train on nights after the first N, so comparing it with the full population model mixes
+    personalization with a smaller training set. The `matched` variant trains on exactly the same
+    nights without personal features; the paired difference against it is the headline
+    personalization result.
+30. **Metric conventions.** Macro-F1 averages over stages present in the true labels of the group
+    scored; 4-class scores merge N1+N2 probabilities before the argmax; ECE is top-label with 15
+    bins; CIs resample subjects (1,000 draws); personalization differences use a paired bootstrap.
+    Hyperparameters optimize macro-F1, which favours rare stages over raw accuracy.
+31. **The heart-rate sample count stays out of the features.** The dataset authors report that HR
+    sampling frequency improves their model; Phase 1 found it slightly lower during Wake, i.e. a
+    device artefact. Results here are therefore not directly comparable to theirs on accuracy.
