@@ -49,10 +49,17 @@ From all 253 nights, checksum-verified on 2026-10-01, via the loader, the qualit
 - **Truncated last rows.** `Bidslab42/3` (`hr.csv`, `motion.csv`) and `Bidslab42/4`
   (`motion.csv`) end in a partial record. The loader skips rows with the wrong number of fields
   and counts them (`*_malformed_rows`).
-- **Sampling varies by night.** Heart rate comes every 5 s on 252 nights and every 2 s on
-  `Bidslab00/2`. Motion runs at about 50 Hz, with four nights at about 33 Hz and four at about
-  64 Hz, plus some jitter. Features are computed on uniform grids so they don't depend on the
-  rate. The data is too coarse for HRV.
+- **Sampling varies by night.** Inside the label window, heart rate comes every 5 s on 252 nights
+  and every 2 s on `Bidslab06/2` (`hr_window_median_dt_s` in the quality table). An earlier
+  version of these notes named `Bidslab00/2`; that night only has extra readings outside the
+  window. Motion runs at about 50 Hz, with four nights at about 33 Hz and four at about 64 Hz,
+  plus some jitter. Features are computed on uniform grids so they don't depend on the rate.
+  The data is too coarse for HRV.
+- **`Bidslab06/2` looks like two interleaved heart-rate streams.** Consecutive readings alternate
+  between two levels about 10 bpm apart (for example 62 and 71 bpm), so the typical step between
+  readings is 12 bpm against 0–1 bpm on every other night (`hr_window_median_step_bpm`). Per-epoch
+  means average the two streams, and the within-epoch HR spread is inflated. No correction is
+  applied; the night is flagged.
 - **Label lengths can differ.** `Bidslab01/4` has 935 Dreem epochs against 771 expert epochs, and
   `Bidslab30/6` has 849 against 851. Dreem labels are cut or padded to the expert length.
 - **Unknown epochs.** 2,363 expert epochs (1.1%, in 62 nights) are Unknown; they are masked.

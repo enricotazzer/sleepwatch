@@ -75,3 +75,8 @@ Newest entries last. Each entry gives the decision and the reason for it.
 23. **`Bidslab01/4` stays in (user decision).** It is used like any other night, despite its expert
     labels disagreeing with Dreem at every lag. Results report its per-night scores so its effect is
     visible.
+24. **Quality table gains in-window heart-rate statistics.** `hr_window_median_dt_s` and
+    `hr_window_median_step_bpm` describe the readings inside the label window. The review notebook
+    found that whole-file statistics had misattributed the 2 s night (it is `Bidslab06/2`, not
+    `Bidslab00/2`), and that `Bidslab06/2` alternates between two heart-rate levels. That night is
+    flagged, not corrected.

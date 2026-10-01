@@ -172,6 +172,12 @@ def load_night(raw_dir: Path, subject: str, night: int) -> Night:
         "hr_duplicate_ts": hr_dup,
         "hr_malformed_rows": hr_bad,
         **{f"hr_{k}": v for k, v in _offsets(hr_raw["t"], rec_start, end).items()},
+        # Within the label window: the raw file can be sampled differently outside it, and a
+        # large typical step between consecutive readings flags interleaved or noisy streams.
+        "hr_window_median_dt_s": float(np.median(np.diff(hr["t"]))) if len(hr) > 1 else np.nan,
+        "hr_window_median_step_bpm": float(hr["hr"].diff().abs().median())
+        if len(hr) > 1
+        else np.nan,
         "motion_rows_raw": len(motion_raw),
         "motion_rows": len(motion),
         "motion_duplicate_ts": motion_dup,

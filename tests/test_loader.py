@@ -48,6 +48,9 @@ def test_signals_are_cropped_to_the_label_window(tmp_path):
     assert night.hr["t"].between(REC_START, night.end, inclusive="left").all()
     assert night.quality["hr_start_offset_min"] == pytest.approx(-100 / 60)
     assert night.quality["hr_end_offset_min"] > 80
+    # In-window statistics ignore the samples outside the window (5 s steps, constant 60 bpm).
+    assert night.quality["hr_window_median_dt_s"] == pytest.approx(5.0)
+    assert night.quality["hr_window_median_step_bpm"] == 0.0
 
 
 def test_duplicate_hr_timestamps_are_averaged(tmp_path):
