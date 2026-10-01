@@ -9,8 +9,8 @@ with an LLM follow-up agent that asks about your day after an unusual night.
 
 1. Learns each person's own heart-rate and movement patterns per sleep stage from their previous
    nights.
-2. Stages sleep from Apple Watch heart rate and accelerometry, personalized with the same person's
-   earlier nights.
+2. Stages sleep from Apple Watch heart rate and accelerometry, and tests whether the same
+   person's earlier nights improve it (so far they don't; see below).
 3. Flags nights and periods that deviate from that personal baseline.
 4. For each flagged night, holds a short conversation with an LLM that asks open questions about
    the day (caffeine, alcohol, late exercise or meals, stress, illness, schedule changes) and stores
@@ -24,11 +24,29 @@ with an LLM follow-up agent that asks about your day after an unusual night.
 |---|---|---|
 | 0 | Project setup, dataset verification | done |
 | 1 | Data pipeline, epoch features, exploratory analysis | done |
-| 2 | Sleep staging with multi-night personalization | in progress |
+| 2 | Sleep staging with multi-night personalization | done |
 | 3 | Personalized anomaly detection | planned |
 | 4 | LLM follow-up agent and simulated-user evaluation | planned |
 | 5 | Deployable app | planned |
 | 6 | Results and documentation | planned |
+
+### Phase 2 results (5-fold cross-validation by subject, 47 subjects, 253 nights)
+
+| Model | Kappa, 5-class [95% CI] | Macro-F1, 5-class | Kappa, 4-class | Accuracy, 4-class |
+|---|---|---|---|---|
+| Bidirectional GRU over whole nights | 0.510 [0.482, 0.537] | 0.566 | 0.533 | 0.684 |
+| Gradient-boosted trees, per epoch | 0.381 [0.357, 0.404] | 0.504 | 0.390 | 0.592 |
+
+- **Personalization with 1–3 earlier nights didn't improve staging.** This was compared against
+  a control trained on the same nights. It held for label-free personal features, and even for an
+  upper bound that uses the earlier nights' expert labels.
+- **N1 is the hard stage** (GRU F1 0.16). The probabilities are reasonably calibrated (ECE 0.04).
+- **Robustness checks.** Re-pairing the labels by the ~90 s offset found in Phase 1, or training on
+  the automatic Dreem labels instead of the expert labels, changes kappa by at most 0.012.
+- **Two nights have labels offset from the watch by 31 and 59 min.** They are kept, and they
+  affect kappa by 0.005 at most.
+
+Details, figures and caveats are in [`notebooks/02_staging.ipynb`](notebooks/02_staging.ipynb).
 
 ## Data
 

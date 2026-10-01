@@ -120,3 +120,13 @@ Newest entries last. Each entry gives the decision and the reason for it.
     parallel; each fold is seeded on its own, and a test checks that predictions don't depend on
     `--jobs`. `device: mps` remains available (same outputs to within 1e-6, not bitwise
     reproducible).
+33. **Two nights with offset labels stay in, uncorrected.** `Bidslab42/1` and `Bidslab68/2`
+    appear to have labels that start when the watch starts, 31 and 59 min after `recStart`
+    (`docs/data.md`). This was found by scanning test-fold predictions, so correcting or dropping
+    them now would change reported numbers on the strength of the test data. They stay in every
+    reported result, and the effect of excluding them (kappa +0.003 to +0.005) is shown only as a
+    diagnostic. Whether later phases correct them is open.
+34. **Personalization is reported as a negative result, not redesigned.** No personalization
+    variant beat the matched control. Changing the personal features after seeing these
+    cross-validated results would be tuning on the test subjects. Any new design would be a new,
+    pre-declared experiment that is reported alongside this one.

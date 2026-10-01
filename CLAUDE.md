@@ -8,7 +8,8 @@ Research prototype, not a medical device.
 ## Workflow
 Work is split into phases 0–6 (see README). Each phase starts with a plan the user approves, and
 ends with a results summary; then wait for the go-ahead. Ask when a decision is the user's.
-Phases 0 (setup) and 1 (data pipeline + EDA) are done; Phase 2 (staging) is in progress.
+Phases 0 (setup), 1 (data pipeline + EDA) and 2 (staging) are done; Phase 3 (anomaly detection)
+needs a plan and the user's go-ahead.
 
 ## Commands
 ```bash

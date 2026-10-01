@@ -69,6 +69,17 @@ From all 253 nights, checksum-verified on 2026-10-01, via the loader, the qualit
   within about a minute of it on typical nights. No recording starts in a DST-ambiguous hour; the
   loader resolves such cases against the signal start anyway. All subjects' nights are in date
   order.
+- **Two nights' labels start later than `recStart` says (found in Phase 2).** On `Bidslab42/1`
+  and `Bidslab68/2` the watch starts 30.7 and 59.2 min after `recStart`, and the labels appear to
+  start then too. Pairing each night's cross-validated GRU predictions with the expert labels at
+  every lag up to ±75 min, agreement peaks at +62 and +118 epochs: kappa rises from −0.21 to 0.57
+  and from −0.05 to 0.32. Those lags are the watch start delays to within one epoch. On every
+  other night the best lag gains at most 0.06 kappa over lag 0, so the curve is flat around the
+  documented alignment (203 of those 251 nights peak within ±3 epochs). Late watch starts alone
+  don't imply this: `Bidslab14/4` (122 min late) and `Bidslab02/4` (48 min) are aligned at lag 0.
+  So it can't be detected without labels, and neither night is near a DST change. No correction is
+  applied; notebook `02_staging` (section 5) shows the scan and the scores without these two
+  nights.
 - **Dreem vs expert agreement.** Pooled Cohen's kappa is 0.75 (5-class) and 0.82 (4-class), with a
   per-night median of 0.75. Most disagreement is N1. Because the expert labels are corrections of
   the Dreem labels, this is not an independent inter-rater agreement.
@@ -80,12 +91,17 @@ From all 253 nights, checksum-verified on 2026-10-01, via the loader, the qualit
   rate, consistent with movement slightly preceding EEG-scored Wake. The expert labels match Dreem
   best when shifted by 1–2 epochs. The documentation says both share `recStart` (recorded on one
   iPhone) and doesn't mention any offset. `sleepwatch.data.label_timing` reproduces the check, and
-  notebook `01_eda` (section 9) shows it. No correction is applied yet; that decision belongs to
-  Phase 2.
-- **`Bidslab01/4` has suspect expert labels.** They agree with Dreem on 22% of epochs (kappa
-  −0.03), and no shift repairs this. The proposal is to exclude this night from evaluation.
-  `Bidslab47/2` (kappa 0.47) is the only other night under 0.5 and behaves like a genuinely hard
-  night.
+  notebook `01_eda` (section 9) shows it. Phase 2 keeps the documented alignment for the headline
+  results and retrains with the shifted labels as a sensitivity analysis: the lag estimated on
+  each fold's training subjects is −3 in every fold, and scores change by at most 0.012 kappa
+  (notebook `02_staging`, section 7).
+- **On `Bidslab01/4` the Dreem labels, not the expert labels, are the odd ones out.** The two
+  agree on 22% of epochs (kappa −0.03), and no shift repairs this. Phase 1 suspected the expert
+  labels. Phase 2's cross-validated watch models agree with the expert labels at a typical level
+  (GRU kappa 0.50, boosting 0.37) and with the Dreem labels much less (0.11 and 0.25). The Dreem
+  file is also longer (935 vs 771 epochs), so it probably comes from a different recording window.
+  The night is kept, as decided in Phase 1. `Bidslab47/2` (kappa 0.47) is the only other night
+  under 0.5 and behaves like a genuinely hard night.
 
 ## Epoch table (feature set `v1`)
 
