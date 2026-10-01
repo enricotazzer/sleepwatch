@@ -9,7 +9,7 @@ from sleepwatch.config import PROJECT_ROOT
 
 
 def git_revision() -> dict:
-    """Current commit and whether the working tree has uncommitted changes."""
+    """Current commit and whether tracked files have uncommitted changes."""
 
     def git(*args: str) -> str:
         return subprocess.run(
@@ -17,7 +17,10 @@ def git_revision() -> dict:
         ).stdout.strip()
 
     try:
-        return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain"))}
+        return {
+            "commit": git("rev-parse", "HEAD"),
+            "dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
+        }
     except (OSError, subprocess.CalledProcessError):
         return {"commit": None, "dirty": None}
 
