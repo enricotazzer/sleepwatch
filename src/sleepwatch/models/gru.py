@@ -30,15 +30,17 @@ N_CLASSES = 5
 class GRUConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    hidden: int = 64
-    layers: int = 2
+    # Size chosen on fold 0's validation subjects (training data only): one 48-unit layer
+    # matched two 64-unit layers (val macro-F1 0.536 vs 0.539) at about half the cost.
+    hidden: int = 48
+    layers: int = 1
     dropout: float = 0.2
     input_dropout: float = 0.1
-    lr: float = 1e-3
+    lr: float = 2e-3
     weight_decay: float = 1e-2
     batch_size: int = 8
-    max_epochs: int = 60
-    patience: int = 8
+    max_epochs: int = 40
+    patience: int = 6
     clip: float = 1.0
     threads: int = 4
 
