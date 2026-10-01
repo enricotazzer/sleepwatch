@@ -1,0 +1,5 @@
+# Bidirectional GRU over whole nights: population model plus both personalization variants.
+name: gru_main
+model: gru
+personalization: [prior_norm, prior_stage]
+n_prior: [1, 2, 3]

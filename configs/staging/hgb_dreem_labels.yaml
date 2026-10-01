@@ -1,0 +1,5 @@
+# Trained on the automatic Dreem labels, evaluated against the expert labels: what does the
+# expert review add as a training signal?
+name: hgb_dreem_labels
+model: hgb
+train_labels: dreem

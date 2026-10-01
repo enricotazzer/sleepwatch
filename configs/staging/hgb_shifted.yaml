@@ -1,0 +1,5 @@
+# Sensitivity analysis: expert labels re-paired by the lag estimated on each fold's training
+# subjects (docs/data.md, "expert labels appear to run about 90 s late").
+name: hgb_shifted
+model: hgb
+label_shift: estimate

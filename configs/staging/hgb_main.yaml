@@ -1,0 +1,5 @@
+# Gradient-boosted trees: population model plus both personalization variants (N = 1-3 nights).
+name: hgb_main
+model: hgb
+personalization: [prior_norm, prior_stage]
+n_prior: [1, 2, 3]

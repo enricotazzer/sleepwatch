@@ -14,7 +14,9 @@ from sleepwatch.data import manifest as mf
 
 app = typer.Typer(no_args_is_help=True, help="Personalized sleep staging and anomaly detection.")
 data_app = typer.Typer(no_args_is_help=True, help="Dataset utilities.")
+splits_app = typer.Typer(no_args_is_help=True, help="Cross-validation folds.")
 app.add_typer(data_app, name="data")
+app.add_typer(splits_app, name="splits")
 console = Console(soft_wrap=True)  # don't break paths across lines
 
 
@@ -121,3 +123,69 @@ def build_epochs(
     )
     for kind, path in paths.items():
         console.print(f"  {kind}: {path}")
+
+
+@splits_app.command("make")
+def make_splits(
+    n_folds: Annotated[int, typer.Option(help="Number of folds.")] = 5,
+    seed: Annotated[int, typer.Option(help="Shuffle seed.")] = 42,
+    force: Annotated[
+        bool, typer.Option("--force", help="Overwrite an existing fold file.")
+    ] = False,
+) -> None:
+    """Assign subjects to folds once; every experiment reuses this file."""
+    from sleepwatch.models.splits import SPLITS_FILE, make_folds, save_folds
+
+    if SPLITS_FILE.exists() and not force:
+        console.print(f"[red]{SPLITS_FILE} exists; folds are fixed. Use --force to replace.[/red]")
+        raise typer.Exit(code=2)
+    settings = get_settings()
+    manifest = mf.load_manifest(settings.interim_dir / mf.MANIFEST_FILE, settings.raw_dir)
+    nights = mf.verified_nights(manifest)
+    summary = mf.summarize(manifest)
+    if len(nights) < summary["nights"]:
+        console.print("[red]Not every night is verified; folds must cover the full dataset.[/red]")
+        raise typer.Exit(code=2)
+    folds = make_folds(nights, n_folds, seed)
+    save_folds(folds, SPLITS_FILE, n_folds, seed)
+    per_fold = {f: sum(1 for s, n in nights if folds[s] == f) for f in range(n_folds)}
+    console.print(f"{len(folds)} subjects in {n_folds} folds; nights per fold: {per_fold}")
+    console.print(f"Saved {SPLITS_FILE}")
+
+
+@app.command("train")
+def train(
+    config: Annotated[Path, typer.Argument(help="Staging experiment YAML.")],
+    fold: Annotated[
+        list[int] | None, typer.Option(help="Run only these folds (quick checks; marked partial).")
+    ] = None,
+) -> None:
+    """Run a cross-validated staging experiment and save predictions and metrics."""
+    from sleepwatch.features.build import load_build
+    from sleepwatch.models.experiment import StagingConfig, compute_metrics, run_folds, save_run
+    from sleepwatch.models.splits import SPLITS_FILE, load_folds
+
+    if not config.is_absolute() and not config.exists():
+        config = PROJECT_ROOT / config
+    cfg = StagingConfig.from_yaml(config)
+    if fold:
+        cfg = cfg.model_copy(update={"folds": fold})
+    settings = get_settings()
+    epochs, _, build = load_build(cfg.features, settings.processed_dir)
+    folds = load_folds()
+    console.print(f"Experiment '{cfg.name}' ({cfg.model}); folds: {cfg.folds or 'all'}")
+    pred, fold_log = run_folds(cfg, epochs, folds, log=console.print)
+    metrics = compute_metrics(pred, cfg.n_boot, cfg.seed)
+    run_dir = save_run(
+        cfg,
+        pred,
+        fold_log,
+        metrics,
+        settings.results_dir,
+        extra={"features_build": build, "splits_file": str(SPLITS_FILE)},
+    )
+    pooled = metrics["population"]["all"]["5"]["pooled"]
+    console.print(
+        f"Population, 5-class: kappa {pooled['kappa']:.3f}, macro-F1 {pooled['macro_f1']:.3f}"
+    )
+    console.print(f"Saved {run_dir}")
