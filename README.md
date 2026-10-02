@@ -25,6 +25,7 @@ with an LLM follow-up agent that asks about your day after an unusual night.
 | 0 | Project setup, dataset verification | done |
 | 1 | Data pipeline, epoch features, exploratory analysis | done |
 | 2 | Sleep staging with multi-night personalization | done |
+| 2b | Three more personalization designs | done |
 | 3 | Personalized anomaly detection | planned |
 | 4 | LLM follow-up agent and simulated-user evaluation | planned |
 | 5 | Deployable app | planned |
@@ -40,6 +41,13 @@ with an LLM follow-up agent that asks about your day after an unusual night.
 - **Personalization with 1–3 earlier nights didn't improve staging.** This was compared against
   a control trained on the same nights. It held for label-free personal features, and even for an
   upper bound that uses the earlier nights' expert labels.
+- **Phase 2b tried three more designs, fixed in advance; none improved staging without labels.**
+  - A baseline from *all* earlier nights: −0.004 kappa for the trees and −0.007 for the GRU.
+  - A learned summary of the earlier nights: −0.006 against the same model given another
+    person's nights.
+  - Fine-tuning the GRU on the person's labelled nights beat fine-tuning on another person's
+    nights by +0.02 to +0.035, but beat the population model by only +0.004 to +0.014, with CIs
+    including 0. See [`notebooks/02b_personalization.ipynb`](notebooks/02b_personalization.ipynb).
 - **N1 is the hard stage** (GRU F1 0.16). The probabilities are reasonably calibrated (ECE 0.04).
 - **Robustness checks.** Re-pairing the labels by the ~90 s offset found in Phase 1, or training on
   the automatic Dreem labels instead of the expert labels, changes kappa by at most 0.012.

@@ -179,3 +179,12 @@ Newest entries last. Each entry gives the decision and the reason for it.
 39. **All Phase 2 experiments are rerun at the Phase 2b commit.** Phase 2b changes the experiment
     code. Rerunning puts every reported run on one commit, and the review notebook checks that
     the reruns reproduce the earlier Phase 2 predictions exactly.
+40. **Phase 2b outcome (recorded after the runs; the protocol above was not changed).** Neither
+    label-free design beat its control:
+    - expanding baseline: trees −0.004 [−0.011, +0.004], GRU −0.007 [−0.019, +0.005];
+    - learned summary: −0.006 [−0.025, +0.018].
+
+    Fine-tuning on the person's labelled nights beat fine-tuning on another person's nights by
+    +0.022 to +0.035, with all CIs above 0. Against the population GRU the gain was only +0.004
+    to +0.014, with all CIs including 0. All Phase 2 reruns reproduced the earlier predictions
+    exactly. Details are in `notebooks/02b_personalization.ipynb`.
