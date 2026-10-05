@@ -1,0 +1,3 @@
+# Phase 3 (docs/decisions.md 41-45): personal baselines from earlier nights, alarms calibrated on
+# training subjects' clean nights, validated with anomalies injected into test nights.
+name: anomaly_main

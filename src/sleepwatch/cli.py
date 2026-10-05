@@ -15,8 +15,10 @@ from sleepwatch.data import manifest as mf
 app = typer.Typer(no_args_is_help=True, help="Personalized sleep staging and anomaly detection.")
 data_app = typer.Typer(no_args_is_help=True, help="Dataset utilities.")
 splits_app = typer.Typer(no_args_is_help=True, help="Cross-validation folds.")
+anomaly_app = typer.Typer(no_args_is_help=True, help="Personalized anomaly detection (Phase 3).")
 app.add_typer(data_app, name="data")
 app.add_typer(splits_app, name="splits")
+app.add_typer(anomaly_app, name="anomaly")
 console = Console(soft_wrap=True)  # don't break paths across lines
 
 
@@ -197,4 +199,51 @@ def train(
     console.print(
         f"Population, 5-class: kappa {pooled['kappa']:.3f}, macro-F1 {pooled['macro_f1']:.3f}"
     )
+    console.print(f"Saved {run_dir}")
+
+
+@anomaly_app.command("run")
+def anomaly_run(
+    config: Annotated[Path, typer.Argument(help="Anomaly experiment YAML.")],
+    fold: Annotated[
+        list[int] | None, typer.Option(help="Run only these folds (quick checks; marked partial).")
+    ] = None,
+    jobs: Annotated[int, typer.Option(help="Parallel processes (folds, then nights).")] = 1,
+) -> None:
+    """Score nights against personal baselines, validate with injected anomalies, save results."""
+    from functools import partial
+
+    from sleepwatch.anomaly.experiment import AnomalyConfig, run, save_run
+    from sleepwatch.data.loader import load_night
+    from sleepwatch.features.build import load_build
+    from sleepwatch.features.epoch_features import FeatureConfig
+    from sleepwatch.models.splits import SPLITS_FILE, load_folds
+
+    if not config.is_absolute() and not config.exists():
+        config = PROJECT_ROOT / config
+    cfg = AnomalyConfig.from_yaml(config)
+    if fold:
+        cfg = cfg.model_copy(update={"folds": fold})
+    settings = get_settings()
+    epochs, quality, build = load_build(cfg.features, settings.processed_dir)
+    feature_cfg = FeatureConfig.model_validate(build["config"])
+    console.print(f"Anomaly experiment '{cfg.name}'; folds: {cfg.folds or 'all'}; jobs: {jobs}")
+    output = run(
+        cfg,
+        epochs,
+        load_folds(),
+        partial(load_night, settings.raw_dir),
+        feature_cfg,
+        jobs=jobs,
+        log=console.print,
+    )
+    run_dir = save_run(
+        cfg,
+        output,
+        quality,
+        settings.results_dir,
+        extra={"features_build": build, "splits_file": str(SPLITS_FILE), "jobs": jobs},
+    )
+    primary = output["metrics"]["variants"]["gru/personal"]["false_alarm_rate"]["value"]
+    console.print(f"False-alarm rate on clean test nights (GRU stages, personal): {primary:.3f}")
     console.print(f"Saved {run_dir}")
