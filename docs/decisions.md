@@ -188,3 +188,78 @@ Newest entries last. Each entry gives the decision and the reason for it.
     +0.022 to +0.035, with all CIs above 0. Against the population GRU the gain was only +0.004
     to +0.014, with all CIs including 0. All Phase 2 reruns reproduced the earlier predictions
     exactly. Details are in `notebooks/02b_personalization.ipynb`.
+
+## Phase 3: personalized anomaly detection (protocol fixed before any run, 2026-10-05)
+
+41. **Ground rules.**
+    - **Exclusions:** `Bidslab42/1` and `Bidslab68/2` are excluded everywhere (user decision; see
+      decision 33).
+    - **Scored nights and baselines:** a night is scored if its subject has at least 2 earlier
+      usable nights, and its baseline uses only those earlier nights.
+    - **What is learned from data, and where:** population priors, shrinkage strengths and alarm
+      thresholds all come from the outer fold's training subjects. Results are reported on its
+      test subjects.
+    - **Thresholds see scores made the way test scores are:** an inner 5-fold split of the
+      training subjects gives them out-of-sample stage predictions (inner GRUs) and out-of-sample
+      priors. This adds 25 inner GRU trainings to the 5 outer ones in the plan.
+    - **No tuning, everything reported:** nothing below is tuned on test subjects or on injected
+      nights, and every condition is reported. There are no causal, psychological or HRV claims.
+42. **Detector.**
+    - **Signals:** epoch heart rate (`hr_mean`) and log₁₀ activity.
+    - **Time of night:** bins of hours since the actigraphy onset: before onset, 0–1.5, 1.5–3,
+      3–4.5, 4.5–6 and 6 or more.
+    - **Expected value** for person *p*, stage *s* and time bin *t*: μ_pop(s,t) + b_p + b_{p,s}.
+      - The *b* terms are averages of per-night mean residuals over the earlier nights, shrunk by
+        N/(N+κ).
+      - κ comes from the training subjects by method of moments.
+      - z = residual / per-stage residual SD, where the SD comes from training subjects.
+    - **Night channels**, all one-sided in the "worse" direction:
+      1. the highest 30-min mean HR z in the sleep period;
+      2. the mean HR z over the sleep period;
+      3. wake bouts of 1 min or more per hour after sleep onset;
+      4. onset latency, where onset is the first stretch of 10 min or more of continuous sleep.
+    - **Channels 3–4 are z-scored against the person's earlier nights:** the mean is shrunk as
+      above, and the SD is the pooled within-person SD between nights.
+    - **The stage-free variant** treats all epochs as one stage. It counts movement bursts (runs
+      with activity z > 3) instead of wake bouts, and uses the actigraphy onset.
+    - **Alarm:**
+      - each channel gets a tail probability under the null, which is the training subjects'
+        clean nights;
+      - a night's score is its smallest tail probability;
+      - the night is flagged when that score is at or below its 5th percentile under the null,
+        which makes the false-alarm rate 5% on training subjects.
+43. **Variants.**
+    - **Stages:** from the population GRU (primary), the expert labels (best case), or none.
+    - **Baseline:** personal (primary) or population-only (b = 0).
+    - That gives 6 detectors in all.
+44. **Injections.**
+    - **How:** anomalies are injected into the raw HR and accelerometer samples of test nights.
+      Features are rebuilt with the unchanged pipeline, and stages are re-predicted by the fold's
+      GRU.
+    - **HR elevation:** +3, +6 or +10 bpm for 30 min, 2 h or the whole sleep period. Edges ramp
+      over 2 min, and placement is random within the expert sleep period.
+    - **Fragmentation:** 2, 4 or 8 awakenings of 3 min, at least 15 min apart. Their HR and
+      accelerometer samples are copied from the night's own expert-Wake stretches (6+ epochs with
+      at least 90% coverage), and the labels there become Wake.
+    - **Delayed onset:** +20, +40 or +60 min after the expert persistent onset. That time is
+      filled with wake copied from the same night, and the labels there become Wake.
+    - **Versions and seeding:** each injected version holds one anomaly, and placement is seeded.
+    - **Skipped nights:** nights without a usable wake stretch skip fragmentation and onset
+      injections. There are 5 after the exclusions, and they are counted.
+45. **Metrics.**
+    - **Primary detector** (GRU stages + personal baseline), per type × size:
+      - recall at the threshold;
+      - AUROC of injected vs clean versions of the same nights;
+      - 95% CIs by resampling subjects.
+    - **False alarms:** the rate on clean test nights, against the nominal 5%.
+    - **Precision** at an assumed 10% prevalence, derived from recall and the false-alarm rate.
+    - **Localization:**
+      - HR: whether the centre of the flagged 30-min window falls inside the injected window;
+      - fragmentation: the share of injected awakenings that overlap a detected wake bout.
+    - **Type:** whether the matching channel has the smallest tail probability.
+    - **Comparisons:**
+      - personal vs population-only baseline, paired;
+      - GRU vs expert vs no stages;
+      - recall by number of baseline nights.
+    - **Real nights:** flagged clean test nights are described with no causal claims, and exported
+      as structured summaries for Phase 4.
