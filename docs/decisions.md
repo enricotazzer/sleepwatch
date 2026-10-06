@@ -298,3 +298,51 @@ Newest entries last. Each entry gives the decision and the reason for it.
     - **Possible changes need a new protocol:** screening artifacts out of the null, or a
       calibration that doesn't hinge on the single most extreme training night. Either would be
       post hoc, so neither was made.
+
+## Phase 3b: heart-rate artifact screen (post hoc; protocol fixed before any rescoring, 2026-10-06)
+
+47. **Protocol.**
+    - **Why:** decision 46 found that a likely measurement artifact (`Bidslab43/3`) sets part of
+      the alarm threshold and reaches the Phase 4 summaries unmarked. Phase 3b measures what a
+      label-free screen changes. It is **post hoc**: `anomaly_main` stays the headline result,
+      and this run is a sensitivity analysis reported next to it.
+    - **Rule:**
+      - An epoch is *suspect* if its HR is at least 40 bpm above its night version's median HR
+        (over epochs that have HR) for at least 10 consecutive epochs (5 min).
+      - A missing epoch breaks a run.
+      - The rule is applied the same way to every night version: clean, injected, null and
+        baseline.
+    - **How it was chosen:**
+      - It was chosen after seeing `Bidslab43/3`.
+      - Its thresholds come from the label-free HR distribution of the stored epoch table, never
+        from a detector result. Single epochs 40+ bpm above the median are at the 99.9th
+        percentile.
+      - On the 253 clean nights it marks 94 epochs on 2 nights: `Bidslab43/3` (82) and
+        `Bidslab53/3` (12). Both show a step-plateau-step pattern while the EEG shows sleep. At
+        +30 bpm it would mark a third night.
+      - It can't tell a sensor artifact from a real abrupt tachycardia, so marked stretches are
+        reported, not dropped silently.
+      - It is not tuned again after the rescoring.
+    - **Effect on the detector:**
+      - Suspect epochs' HR is treated as missing in the detector inputs: priors, inner-fold
+        nulls, personal baselines and test nights.
+      - Stages (Phase 2's GRU, which saw the artifact) and movement are unchanged. That is a
+        stated limitation.
+    - **Reporting:**
+      - Flagged nights' summaries name any suspect stretch in `data_quality` (minutes, peak HR,
+        "ignored by the detector").
+      - Every night version with suspect epochs is listed in `screened.parquet`.
+    - **Method:**
+      - The run is a *rescore* of `anomaly_main` 20261006T091359Z. It reuses that run's saved
+        stages (outer and inner), injected epochs, night table and inner folds, so the screen
+        is the only difference.
+      - Rescoring without the screen must reproduce `anomaly_main`'s scores exactly.
+      - The calibration rule, channels, injections, metrics and everything else in decisions
+        41–45 are unchanged.
+    - **Metrics:**
+      - The pre-declared Phase 3 set, for all 6 detectors.
+      - Per condition, screened minus main: the recall difference paired by night version, and
+        the false-alarm difference, each with 95% CIs from resampling subjects.
+      - AUROC side by side.
+      - The alarm edge per fold.
+      - Suspect epochs by version kind, inside vs outside injection windows.

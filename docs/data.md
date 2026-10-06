@@ -70,6 +70,11 @@ From all 253 nights, checksum-verified on 2026-10-01, via the loader, the qualit
   are at most 5 per night. No correction is applied, and the quality table doesn't flag the
   night. In Phase 3 it sets the training nights' extreme for the 30-min HR channel in three folds,
   and it is one of the five real nights flagged (notebook `03_anomaly`, section 7).
+- **`Bidslab53/3` has a 6-min heart-rate plateau with the same signature (found in Phase 3b).**
+  About 295 min after the start, HR steps from about 63 to 111–125 bpm across a 1-min gap. It
+  holds there with no measured movement while the expert labels show N1 then REM, then drops back
+  to 59 bpm across a 30-s gap. Steps between readings reach 61 bpm. This could be an artifact or
+  a real event; the data can't tell. It is the only other night the Phase 3b screen marks.
 - **Label lengths can differ.** `Bidslab01/4` has 935 Dreem epochs against 771 expert epochs, and
   `Bidslab30/6` has 849 against 851. Dreem labels are cut or padded to the expert length.
 - **Unknown epochs.** 2,363 expert epochs (1.1%, in 62 nights) are Unknown; they are masked.
