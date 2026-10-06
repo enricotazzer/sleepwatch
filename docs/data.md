@@ -60,6 +60,16 @@ From all 253 nights, checksum-verified on 2026-10-01, via the loader, the qualit
   readings is 12 bpm against 0–1 bpm on every other night (`hr_window_median_step_bpm`). Per-epoch
   means average the two streams, and the within-epoch HR spread is inflated. No correction is
   applied; the night is flagged.
+- **`Bidslab43/3` has a stretch of implausible heart rate (found in Phase 3).** From about 31 to
+  104 min after the start, HR sits flat at about 130, then 165–172, then 115, then 110 bpm. It
+  jumps by 40–90 bpm between readings a few seconds apart. While HR is above 110 bpm, the expert
+  labels are mostly N3 (95 of 132 epochs, plus 16 N2 and 21 Wake). This is the only night with
+  more than 2 readings at 150 bpm or more (it has 162). Heart rate doesn't behave like this in
+  sleep, so the stretch is most likely a measurement artifact. Isolated jumps of 40 bpm or more
+  within 30 s occur on 32 of 253 nights, but outside `Bidslab06/2` (83) and this night (9) there
+  are at most 5 per night. No correction is applied, and the quality table doesn't flag the
+  night. In Phase 3 it sets the training nights' extreme for the 30-min HR channel in three folds,
+  and it is one of the five real nights flagged (notebook `03_anomaly`, section 7).
 - **Label lengths can differ.** `Bidslab01/4` has 935 Dreem epochs against 771 expert epochs, and
   `Bidslab30/6` has 849 against 851. Dreem labels are cut or padded to the expert length.
 - **Unknown epochs.** 2,363 expert epochs (1.1%, in 62 nights) are Unknown; they are masked.

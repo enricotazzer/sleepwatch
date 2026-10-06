@@ -263,3 +263,38 @@ Newest entries last. Each entry gives the decision and the reason for it.
       - recall by number of baseline nights.
     - **Real nights:** flagged clean test nights are described with no causal claims, and exported
       as structured summaries for Phase 4.
+46. **Phase 3 outcome (recorded after the run; the protocol above was not changed).**
+    - **Run:** `anomaly_main` 20261006T091359Z at commit 93c9a17, clean. It covers 157 scored
+      nights from 47 subjects. 3 nights have no wake stretch to copy from (`Bidslab31/3`,
+      `Bidslab31/5`, `Bidslab45/3`), not the 5 estimated in decision 44.
+    - **Two details of the code, fixed before the run, that decisions 42 and 45 state loosely:**
+      - **Threshold:** the threshold is the largest value whose leave-one-out rate on the null
+        nights is at most 5%. Decision 42 calls it "the 5th percentile", but with about 125 null
+        nights and four channels the rule means beating all, or all but one, of the training
+        nights in some channel. The achieved null rates were 2.5–4.8%.
+      - **AUROC:** each condition's injected versions are compared with the clean versions of
+        all test nights, pooled rather than paired per night.
+    - **Results, primary detector (GRU stages, personal baseline):**
+      - **False alarms:** 3.2% [0.7, 6.1] on clean test nights (5 of 157).
+      - **Recall:** whole-night +10 bpm 27% [18, 37]; 8 awakenings 20% [13, 28]; +60 min onset
+        10% [5, 17]; all smaller or shorter injections 3–8%.
+      - **AUROC:** up to 0.82, 0.79 and 0.91 for those three.
+    - **Comparisons:**
+      - **Personal vs population baseline:** the personal baseline adds recall for whole-night
+        +10 bpm (+0.17 [0.11, 0.24]) and 2-h +10 bpm (+0.03 [0.01, 0.05]). Every other CI
+        includes 0.
+      - **Expert vs GRU stages:** expert stages catch 8 awakenings at 63% against 20%. The GRU
+        marks a wake bout over 57% of the inserted awakenings.
+      - **Stage-free detector:** higher recall for whole-night HR, but at a higher false-alarm rate
+        (4.5%) and a similar AUROC.
+    - **Real nights:** 5 were flagged. One of them, `Bidslab43/3`, contains a likely measurement
+      artifact (docs/data.md), and its summary's data-quality field doesn't mark it.
+    - **Post-hoc diagnostics** (notebook `03_anomaly`, section 7; nothing was changed because of
+      them):
+      - **Shifts:** the largest injections move their channel by about 2–3 z, against a training
+        95th percentile of 1.6–3.0 and a training maximum of 3.1–5.9.
+      - **The artifact night:** `Bidslab43/3` sets the 30-min HR channel's maximum in three of its
+        four training folds.
+    - **Possible changes need a new protocol:** screening artifacts out of the null, or a
+      calibration that doesn't hinge on the single most extreme training night. Either would be
+      post hoc, so neither was made.

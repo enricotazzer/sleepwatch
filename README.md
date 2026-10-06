@@ -26,7 +26,7 @@ with an LLM follow-up agent that asks about your day after an unusual night.
 | 1 | Data pipeline, epoch features, exploratory analysis | done |
 | 2 | Sleep staging with multi-night personalization | done |
 | 2b | Three more personalization designs | done |
-| 3 | Personalized anomaly detection | planned |
+| 3 | Personalized anomaly detection | done |
 | 4 | LLM follow-up agent and simulated-user evaluation | planned |
 | 5 | Deployable app | planned |
 | 6 | Results and documentation | planned |
@@ -55,6 +55,33 @@ with an LLM follow-up agent that asks about your day after an unusual night.
   affect kappa by 0.005 at most.
 
 Details, figures and caveats are in [`notebooks/02_staging.ipynb`](notebooks/02_staging.ipynb).
+
+### Phase 3 results (anomaly detection, 157 test nights with 2+ earlier nights)
+
+The detector learns each person's expected heart rate and movement per sleep stage and time of
+night from their earlier nights. It scores four night channels: the peak 30-min heart rate, the
+whole-night heart rate, wake bouts per hour, and onset latency. The alarm threshold is set on other
+people's nights. Validation injects known anomalies into the raw watch signals of test nights.
+
+| Injected anomaly (GRU stages, personal baseline) | Recall at the calibrated threshold [95% CI] | AUROC |
+|---|---|---|
+| +10 bpm over the whole sleep period | 0.27 [0.18, 0.37] | 0.82 |
+| +10 bpm for 2 h | 0.08 [0.04, 0.14] | 0.69 |
+| 8 awakenings of 3 min | 0.20 [0.13, 0.28] | 0.79 |
+| Sleep onset delayed by 60 min | 0.10 [0.05, 0.17] | 0.91 |
+| All smaller or shorter anomalies (11 conditions) | 0.03–0.08 | 0.50–0.83 |
+
+- **False alarms carry over to new people:** 3.2% [0.7, 6.1] of clean test nights are flagged.
+- **At that rate, only large, sustained changes are caught, and not reliably.** The threshold sits
+  at the edge of the ~125 training nights, and their extremes include a sensor artifact.
+- **The personal baseline helps only for whole-night heart rate:** +0.17 recall against a
+  population-only baseline.
+- **Fragmentation is limited by staging:** with expert stages instead of the GRU's, 8 awakenings
+  are caught 63% of the time.
+- **Real nights:** 5 of 157 clean nights are flagged, about what chance alone would give. One of
+  them is a likely sensor artifact. The flags are described, not explained.
+
+Details are in [`notebooks/03_anomaly.ipynb`](notebooks/03_anomaly.ipynb).
 
 ## Data
 
