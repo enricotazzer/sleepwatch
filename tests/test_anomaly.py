@@ -1,5 +1,7 @@
 """Phase 3: baselines, night channels, calibration, injections and the experiment runner."""
 
+import json
+import shutil
 from dataclasses import replace
 
 import numpy as np
@@ -9,7 +11,16 @@ from synth import REC_START, make_night
 
 from sleepwatch.anomaly import baseline as bl
 from sleepwatch.anomaly import scores as sc
-from sleepwatch.anomaly.experiment import AnomalyConfig, _score, night_table, run, save_run
+from sleepwatch.anomaly.experiment import (
+    AnomalyConfig,
+    _inputs,
+    _score,
+    compare_runs,
+    night_table,
+    rescore,
+    run,
+    save_run,
+)
 from sleepwatch.anomaly.inject import (
     InjectionSettings,
     delay_onset,
@@ -19,6 +30,7 @@ from sleepwatch.anomaly.inject import (
     versions,
     wake_sources,
 )
+from sleepwatch.anomaly.screen import ScreenSettings, describe, note, suspect_epochs, suspect_night
 from sleepwatch.config import PROJECT_ROOT
 from sleepwatch.constants import EPOCH_S, N2, N3, REM, WAKE
 from sleepwatch.features.epoch_features import FeatureConfig, night_features
@@ -289,7 +301,9 @@ def test_scores_depend_only_on_earlier_nights(dataset):
     assert not before.equals(score(earlier))
 
 
-def test_runner_end_to_end(dataset, tmp_path):
+@pytest.fixture(scope="module")
+def smoke(dataset, tmp_path_factory):
+    """One small saved run (fold 0 only), shared by the runner and rescoring tests."""
     store, epochs = dataset
     nights = [tuple(k) for k in epochs[["subject", "night"]].drop_duplicates().to_numpy()]
     folds = make_folds(nights, 5, seed=0)
@@ -302,6 +316,20 @@ def test_runner_end_to_end(dataset, tmp_path):
         gru=GRUConfig(hidden=8, lr=3e-2, max_epochs=3, patience=3),
     )
     output = run(cfg, epochs, folds, lambda s, n: store[(s, n)], FEATURES, log=lambda *_: None)
+    quality = pd.DataFrame(
+        {
+            "subject": [k[0] for k in store],
+            "night": [k[1] for k in store],
+            "rec_start_local": "2022-01-10 23:00:00",
+        }
+    )
+    results_dir = tmp_path_factory.mktemp("results")
+    run_dir = save_run(cfg, output, quality, results_dir, extra={})
+    return {"cfg": cfg, "folds": folds, "output": output, "run_dir": run_dir, "dir": results_dir}
+
+
+def test_runner_end_to_end(smoke):
+    cfg, folds, output, run_dir = smoke["cfg"], smoke["folds"], smoke["output"], smoke["run_dir"]
     checks = output["checks"]
     assert checks["features_equal"].all() and checks["stages_equal"].all()
     results = output["results"]
@@ -314,19 +342,6 @@ def test_runner_end_to_end(dataset, tmp_path):
     assert (results.groupby(["source", "baseline", "version"]).size() == 4).all()  # 2 x 2 nights
     metrics = output["metrics"]
     assert "hr+10_sleep" in metrics["variants"]["gru/personal"]["conditions"]
-    run_dir = save_run(
-        cfg,
-        output,
-        pd.DataFrame(
-            {
-                "subject": [k[0] for k in store],
-                "night": [k[1] for k in store],
-                "rec_start_local": "2022-01-10 23:00:00",
-            }
-        ),
-        tmp_path,
-        extra={},
-    )
     for name in [
         "night_scores.parquet",
         "injections.parquet",
@@ -334,4 +349,106 @@ def test_runner_end_to_end(dataset, tmp_path):
         "flagged_nights.json",
     ]:
         assert (run_dir / name).is_file()
-    assert pd.read_csv(tmp_path / "anomaly_index.csv").loc[0, "partial"]
+    assert pd.read_csv(smoke["dir"] / "anomaly_index.csv").loc[0, "partial"]
+
+
+# --- Phase 3b: screen and rescoring -------------------------------------------------------------
+
+
+def test_screen_marks_only_sustained_plateaus_far_above_the_night():
+    settings = ScreenSettings()
+    hr = np.full(300, 60.0)
+    hr[50:60] = 101.0  # 10 epochs at +41: marked
+    hr[100:109] = 130.0  # 9 epochs: too short
+    hr[150:180] = 99.0  # +39: not far enough
+    mask = suspect_night(hr, settings)
+    assert mask[50:60].all() and mask.sum() == 10
+    np.testing.assert_array_equal(suspect_night(hr + 10, settings), mask)  # whole-night offset
+    gap = hr.copy()
+    gap[55] = np.nan  # a missing epoch breaks the run into 5 + 4
+    assert not suspect_night(gap, settings).any()
+    assert not suspect_night(np.full(20, np.nan), settings).any()
+    found = describe(hr, settings)
+    assert found == {"minutes": 5.0, "peak_bpm": 101.0}
+    assert "5 min at up to 101 bpm" in note(found)
+
+
+def test_screen_works_per_night_version_and_masks_only_heart_rate():
+    night = night_features(staged_night("S00", 3), FEATURES)
+    hr = night["hr_mean"].to_numpy().copy()
+    hr[100:120] = np.nanmedian(hr) + 60
+    rows = pd.concat(
+        [night.assign(version="clean"), night.assign(version="hr+60", hr_mean=hr)],
+        ignore_index=True,
+    ).sample(frac=1, random_state=0)
+    suspect = suspect_epochs(rows, ScreenSettings())
+    marked = rows[suspect]
+    assert set(marked["version"]) == {"hr+60"}
+    assert sorted(marked["epoch"]) == list(range(100, 120))
+    plain = _inputs(rows, "expert")
+    screened = _inputs(rows, "expert", screen=ScreenSettings())
+    assert screened.loc[suspect, "hr"].isna().all()
+    pd.testing.assert_frame_equal(screened[~suspect], plain[~suspect])
+    pd.testing.assert_frame_equal(screened.drop(columns="hr"), plain.drop(columns="hr"))
+
+
+def as_complete_base(smoke, tmp_path):
+    """A copy of the smoke run marked complete and clean (the guard is tested separately)."""
+    base = tmp_path / "base"
+    shutil.copytree(smoke["run_dir"], base)
+    info = json.loads((base / "run.json").read_text())
+    info["partial"], info["git"]["dirty"] = False, False
+    (base / "run.json").write_text(json.dumps(info))
+    return base
+
+
+def test_rescore_without_a_screen_reproduces_the_run(dataset, smoke, tmp_path):
+    _, epochs = dataset
+    base = as_complete_base(smoke, tmp_path)
+    cfg = smoke["cfg"].model_copy(update={"name": "again"})
+    again = rescore(cfg, base, epochs, log=lambda *_: None)
+    pd.testing.assert_frame_equal(
+        again["results"], smoke["output"]["results"], check_dtype=False, check_exact=True
+    )
+    comparison = compare_runs(smoke["output"]["results"], again["results"], cfg)
+    for entry in comparison["variants"].values():
+        assert all(c["difference"] == 0 and c["ci95"] == [0, 0] for c in entry.values())
+    screened = rescore(
+        cfg.model_copy(update={"screen": ScreenSettings()}), base, epochs, log=lambda *_: None
+    )
+    table = screened["screened"]  # synthetic nights have no plateaus: nothing marked
+    assert (table["suspect_epochs"] == 0).all() and table["outside_matches_clean"].all()
+    pd.testing.assert_frame_equal(screened["results"], again["results"], check_exact=True)
+
+
+def test_rescore_refuses_partial_bases_and_other_settings(dataset, smoke, tmp_path):
+    _, epochs = dataset
+    with pytest.raises(ValueError, match="complete"):
+        rescore(smoke["cfg"], smoke["run_dir"], epochs)
+    base = as_complete_base(smoke, tmp_path)
+    with pytest.raises(ValueError, match="target_fpr"):
+        rescore(smoke["cfg"].model_copy(update={"target_fpr": 0.1}), base, epochs)
+
+
+def test_compare_runs_pairs_night_versions():
+    rows = pd.DataFrame(
+        {
+            "source": "gru",
+            "baseline": "personal",
+            "subject": ["A", "A", "B", "B"],
+            "night": [3, 4, 3, 4],
+            "version": "clean",
+            "flagged": False,
+            "fold": 0,
+            "threshold": 1 / 120,
+            "null_nights": 120,
+        }
+    )
+    new = rows.assign(flagged=[True, False, False, False])
+    out = compare_runs(rows, new, AnomalyConfig(name="t", n_boot=200))
+    entry = out["variants"]["gru/personal"]["clean"]
+    assert entry["difference"] == 0.25 and entry["changed_up"] == 1 and entry["changed_down"] == 0
+    assert 0 <= entry["ci95"][0] <= 0.25 <= entry["ci95"][1] <= 0.5
+    assert out["edge"]["base"]["gru/personal/0"] == "0 of 120"
+    with pytest.raises(ValueError):
+        compare_runs(rows, new.iloc[:3], AnomalyConfig(name="t"))

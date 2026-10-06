@@ -13,6 +13,10 @@ Per outer fold (the fixed subject folds of Phase 2):
    scored against priors from all training subjects and baselines from their own earlier nights.
 
 Nothing is fitted on test subjects. Results go to ``results/<name>/<timestamp>/``.
+
+Phase 3b (decision 47) adds an optional heart-rate artifact screen (:mod:`.screen`) and
+:func:`rescore`, which re-runs step 3 on a saved run's stages and injected nights so that the
+screen is the only difference.
 """
 
 from __future__ import annotations
@@ -31,8 +35,9 @@ from pydantic import BaseModel, ConfigDict
 from sleepwatch.anomaly import baseline as bl
 from sleepwatch.anomaly import scores as sc
 from sleepwatch.anomaly.inject import InjectionSettings, versions
+from sleepwatch.anomaly.screen import ScreenSettings, describe, note, suspect_epochs
 from sleepwatch.anomaly.summary import AnomalySummary, ChannelResult, clock
-from sleepwatch.constants import STAGE_NAMES, UNKNOWN
+from sleepwatch.constants import EPOCH_S, STAGE_NAMES, UNKNOWN
 from sleepwatch.features.epoch_features import FeatureConfig, feature_columns, night_features
 from sleepwatch.models import gru as gru_model
 from sleepwatch.models.data import prepare
@@ -76,6 +81,7 @@ class AnomalyConfig(BaseModel):
     channels: sc.ChannelSettings = sc.ChannelSettings()
     injections: InjectionSettings = InjectionSettings()
     gru: GRUConfig = GRUConfig()
+    screen: ScreenSettings | None = None  # Phase 3b; None = no screen (Phase 3)
 
     @classmethod
     def from_yaml(cls, path: Path) -> AnomalyConfig:
@@ -178,7 +184,12 @@ def _inject_night(cfg, feature_cfg, loader, key, model, stored: pd.DataFrame):
 # --- 3. scoring --------------------------------------------------------------------------------
 
 
-def _inputs(rows: pd.DataFrame, source: str, stage_column: str = "gru") -> pd.DataFrame:
+def _inputs(
+    rows: pd.DataFrame,
+    source: str,
+    stage_column: str = "gru",
+    screen: ScreenSettings | None = None,
+) -> pd.DataFrame:
     if source == "gru":
         stage = rows[stage_column].to_numpy(dtype=float)
     elif source == "expert":
@@ -186,6 +197,8 @@ def _inputs(rows: pd.DataFrame, source: str, stage_column: str = "gru") -> pd.Da
     else:
         stage = np.zeros(len(rows))
     out = bl.detector_inputs(rows, stage)
+    if screen is not None:
+        out.loc[suspect_epochs(rows, screen).to_numpy(), "hr"] = np.nan
     out["version"] = rows["version"].to_numpy() if "version" in rows else "clean"
     out.index = rows.index
     return out
@@ -271,7 +284,7 @@ def _fold_scores(cfg, fold_info, data, nights, injected, source):
     train_s = sorted(set().union(*fold_info["groups"]))
     clean = data[_in_nights(data, nights[nights["usable"]])]
     train_rows = clean[clean["subject"].isin(train_s)].assign(gru=fold_info["train_stage"])
-    train_in = _inputs(train_rows, source)
+    train_in = _inputs(train_rows, source, screen=cfg.screen)
     scored = nights[nights["scored"]]
 
     null = []
@@ -288,8 +301,8 @@ def _fold_scores(cfg, fold_info, data, nights, injected, source):
     night_prior = sc.fit_night_prior(_night_values(train_in, prior, staged, settings).reset_index())
     test_s = sorted(set(data["subject"]) - set(train_s))
     test_rows = clean[clean["subject"].isin(test_s)].assign(gru=fold_info["test_stage"])
-    history = _inputs(test_rows, source)
-    targets = _inputs(injected, source)
+    history = _inputs(test_rows, source, screen=cfg.screen)
+    targets = _inputs(injected, source, screen=cfg.screen)
     test = _score(targets, history, nights, prior, night_prior, staged, settings)
 
     results = []
@@ -479,7 +492,12 @@ def compute_metrics(results: pd.DataFrame, truth: pd.DataFrame, cfg: AnomalyConf
 KNOWN_ISSUES = {("Bidslab06", 2): "interleaved heart-rate streams (docs/data.md)"}
 
 
-def summaries(results: pd.DataFrame, inputs: pd.DataFrame, quality: pd.DataFrame) -> list[dict]:
+def summaries(
+    results: pd.DataFrame,
+    inputs: pd.DataFrame,
+    quality: pd.DataFrame,
+    screen: ScreenSettings | None = None,
+) -> list[dict]:
     """``AnomalySummary`` for each clean test night the primary detector flags."""
     rows = results[
         (results["source"] == PRIMARY[0])
@@ -510,6 +528,8 @@ def summaries(results: pd.DataFrame, inputs: pd.DataFrame, quality: pd.DataFrame
             if (r["subject"], r["night"]) in KNOWN_ISSUES
             else []
         )
+        if screen is not None and (found := describe(night["hr_mean"].to_numpy(), screen)):
+            flags.append(note(found))
         window = r["window"]
         if window is not None:
             a, b = window
@@ -542,7 +562,165 @@ def summaries(results: pd.DataFrame, inputs: pd.DataFrame, quality: pd.DataFrame
     return out
 
 
-# --- 6. run and save ---------------------------------------------------------------------------
+# --- 6. Phase 3b: screen table, rescoring and comparison ---------------------------------------
+
+
+def screen_table(
+    data: pd.DataFrame,
+    nights: pd.DataFrame,
+    injected: pd.DataFrame,
+    truth: pd.DataFrame,
+    screen: ScreenSettings,
+) -> pd.DataFrame:
+    """Suspect epochs of every usable clean night and every injected test-night version: count,
+    minutes, peak HR, how many fall inside the injection windows, and whether the mask outside
+    them equals the clean night's."""
+    clean = data[_in_nights(data, nights[nights["usable"]])].assign(version="clean")
+    injected_only = injected[injected["version"] != "clean"]
+    frames = pd.concat([clean[injected.columns.drop("gru")], injected_only], ignore_index=True)
+    frames["suspect"] = suspect_epochs(frames, screen)
+    windows = truth.set_index(["subject", "night", "version"])["windows"]
+    reference = {
+        key: group.sort_values("epoch")["suspect"].to_numpy()
+        for key, group in frames[frames["version"] == "clean"].groupby(["subject", "night"])
+    }
+    rows = []
+    for (subject, night, version), group in frames.groupby(["subject", "night", "version"]):
+        group = group.sort_values("epoch")
+        mask = group["suspect"].to_numpy()
+        inside = np.zeros(len(group), dtype=bool)
+        if version != "clean":
+            for a, b in windows.loc[(subject, night, version)]:
+                inside[a:b] = True
+        rows.append(
+            {
+                "subject": subject,
+                "night": int(night),
+                "version": version,
+                "suspect_epochs": int(mask.sum()),
+                "minutes": float(mask.sum() * EPOCH_S / 60),
+                "peak_bpm": float(group["hr_mean"].to_numpy()[mask].max()) if mask.any() else None,
+                "inside_injection": int((mask & inside).sum()),
+                "outside_matches_clean": bool(
+                    np.array_equal(mask[~inside], reference[(subject, night)][~inside])
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _check_base(cfg: AnomalyConfig, base_cfg: AnomalyConfig, info: dict) -> None:
+    if info["partial"] or info["git"]["dirty"] is not False:
+        raise ValueError("the base run must be complete and from a clean commit")
+    differs = sorted(
+        k for k in AnomalyConfig.model_fields if getattr(cfg, k) != getattr(base_cfg, k)
+    )
+    if set(differs) - {"name", "screen"}:
+        raise ValueError(f"config differs from the base run beyond name and screen: {differs}")
+
+
+def rescore(cfg: AnomalyConfig, base_dir: Path, epochs: pd.DataFrame, log=print) -> dict:
+    """Step 3 (scoring) again on a saved run's stages and injected nights, with ``cfg``'s screen.
+
+    Stagers, inner folds and injections are reused, so ``cfg.screen`` is the only difference;
+    with ``screen=None`` the base run's scores are reproduced exactly.
+    """
+    base_dir = Path(base_dir)
+    base_cfg = AnomalyConfig.from_yaml(base_dir / "config.yaml")
+    info = json.loads((base_dir / "run.json").read_text())
+    _check_base(cfg, base_cfg, info)
+    data = prepare(epochs)
+    nights = night_table(data, cfg)
+    saved_nights = pd.read_parquet(base_dir / "nights.parquet")
+    if not nights.reset_index(drop=True).equals(saved_nights):
+        raise ValueError("the night table differs from the base run's")
+    stages = pd.read_parquet(base_dir / "stages.parquet")
+    injected = pd.read_parquet(base_dir / "epochs.parquet")
+    truth = pd.read_parquet(base_dir / "injections.parquet")
+    truth["windows"] = truth["windows"].map(lambda w: [tuple(x) for x in json.loads(w)])
+    index = pd.MultiIndex.from_frame(data[["subject", "night", "epoch"]])
+
+    def on_data(part: pd.DataFrame) -> pd.Series:
+        position = index.get_indexer(pd.MultiIndex.from_frame(part[["subject", "night", "epoch"]]))
+        if (position < 0).any():
+            raise ValueError("saved stages refer to epochs missing from the epoch table")
+        return pd.Series(part["gru"].to_numpy(), index=data.index[position])
+
+    results, nulls = [], []
+    for fold in info["folds"]:
+        mine = stages[stages["fold"] == fold["fold"]]
+        fold_info = {
+            "fold": fold["fold"],
+            "groups": fold["groups"],
+            "train_stage": on_data(mine[mine["role"] == "train"]),
+            "test_stage": on_data(mine[mine["role"] == "test"]),
+        }
+        train_s = set().union(*fold["groups"])
+        test_rows = injected[~injected["subject"].isin(train_s)]
+        for source in STAGE_SOURCES:
+            r, n = _fold_scores(cfg, fold_info, data, nights, test_rows, source)
+            results.append(r)
+            nulls.append(n)
+        log(f"fold {fold['fold']} scored")
+    results = pd.concat(results, ignore_index=True)
+    output = {
+        "results": results,
+        "nulls": pd.concat(nulls, ignore_index=True),
+        "truth": truth,
+        "checks": info["checks"],
+        "stages": stages,
+        "injected": injected,
+        "nights": nights,
+        "folds": info["folds"],
+        "metrics": compute_metrics(results, truth, cfg),
+        "base": {"run": base_dir.name, "dir": str(base_dir), "git": info["git"]},
+    }
+    if cfg.screen is not None:
+        output["screened"] = screen_table(data, nights, injected, truth, cfg.screen)
+    return output
+
+
+def compare_runs(base: pd.DataFrame, new: pd.DataFrame, cfg: AnomalyConfig) -> dict:
+    """New minus base, per detector and condition: recall and false-alarm rate (paired by night
+    version; 95% CIs resample subjects) and the alarm edge per fold."""
+    keys = ["source", "baseline", "subject", "night", "version"]
+    paired = base[[*keys, "flagged"]].merge(
+        new[[*keys, "flagged"]], on=keys, suffixes=("_base", "_new"), validate="one_to_one"
+    )
+    if len(paired) != len(base) or len(paired) != len(new):
+        raise ValueError("the two runs don't hold the same night versions")
+    rng = np.random.default_rng(cfg.seed)
+    subjects = np.array(sorted(paired["subject"].unique()))
+    draws = rng.integers(0, len(subjects), size=(cfg.n_boot, len(subjects)))
+    out = {"variants": {}, "edge": {}}
+    for (source, variant), rows in paired.groupby(["source", "baseline"]):
+        entry = {}
+        for version, part in rows.groupby("version"):
+            per = part.groupby("subject")[["flagged_base", "flagged_new"]].sum()
+            per = per.reindex(subjects, fill_value=0)
+            n = part.groupby("subject").size().reindex(subjects, fill_value=0).to_numpy()
+            diff = (per["flagged_new"] - per["flagged_base"]).to_numpy()
+            boot = diff[draws].sum(1) / np.maximum(n[draws].sum(1), 1)
+            entry[version] = {
+                "base": float(part["flagged_base"].mean()),
+                "new": float(part["flagged_new"].mean()),
+                "difference": float(diff.sum() / n.sum()),
+                "ci95": _ci(boot),
+                "changed_up": int((part["flagged_new"] & ~part["flagged_base"]).sum()),
+                "changed_down": int((part["flagged_base"] & ~part["flagged_new"]).sum()),
+            }
+        out["variants"][f"{source}/{variant}"] = entry
+    for label, frame in (("base", base), ("new", new)):
+        edge = frame.groupby(["source", "baseline", "fold"])[["threshold", "null_nights"]].first()
+        k = np.floor(edge["threshold"] * (edge["null_nights"] + 1) + 1e-9).astype(int) - 1
+        out["edge"][label] = {
+            f"{s}/{b}/{f}": f"{kk} of {n}"
+            for (s, b, f), kk, n in zip(edge.index, k, edge["null_nights"], strict=True)
+        }
+    return out
+
+
+# --- 7. run and save ---------------------------------------------------------------------------
 
 
 def run(
@@ -649,16 +827,19 @@ def save_run(
     git = git_revision()
     partial = cfg.folds is not None
     checks = output["checks"]
+    if isinstance(checks, pd.DataFrame):
+        checks = {
+            "nights": len(checks),
+            "features_equal": int(checks["features_equal"].sum()),
+            "stages_equal": int(checks["stages_equal"].sum()),
+        }
     info = {
         "created": timestamp(),
         "git": git,
         "partial": partial,
         "folds": output["folds"],
-        "checks": {
-            "nights": len(checks),
-            "features_equal": int(checks["features_equal"].sum()),
-            "stages_equal": int(checks["stages_equal"].sum()),
-        },
+        "checks": checks,
+        **({"base_run": output["base"]} if "base" in output else {}),
         **extra,
     }
     (run_dir / "run.json").write_text(json.dumps(info, indent=2, default=str))
@@ -669,7 +850,13 @@ def save_run(
     output["injected"].to_parquet(run_dir / "epochs.parquet", index=False)
     output["nights"].to_parquet(run_dir / "nights.parquet", index=False)
     (run_dir / "metrics.json").write_text(json.dumps(output["metrics"], indent=2, default=float))
-    flagged = summaries(output["results"], output["injected"], quality)
+    flagged = summaries(output["results"], output["injected"], quality, cfg.screen)
+    if "screened" in output:
+        output["screened"].to_parquet(run_dir / "screened.parquet", index=False)
+    if "comparison" in output:
+        (run_dir / "comparison.json").write_text(
+            json.dumps(output["comparison"], indent=2, default=float)
+        )
     (run_dir / "flagged_nights.json").write_text(json.dumps(flagged, indent=2, default=float))
     primary = output["metrics"]["variants"][f"{PRIMARY[0]}/{PRIMARY[1]}"]
     row = {

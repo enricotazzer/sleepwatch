@@ -25,7 +25,7 @@ uv run jupyter nbconvert --to notebook --execute --inplace notebooks/phase1_2_ch
 uv run sleepwatch splits make             # fold file (already created; never regenerate)
 uv run sleepwatch train configs/staging/hgb_main.yaml [--fold 0] [--jobs 5]   # one experiment
 ./scripts/run_staging_experiments.sh      # all Phase 2 and 2b experiments (CPU; GRU folds in parallel)
-./scripts/run_anomaly_experiments.sh      # Phase 3 anomaly experiment (raw data on the T7)
+./scripts/run_anomaly_experiments.sh      # Phase 3 run (raw data on the T7), then the Phase 3b rescore (--rescore-only: just 3b)
 ```
 
 ## Layout

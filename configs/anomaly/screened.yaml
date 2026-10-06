@@ -1,0 +1,6 @@
+# Phase 3b (docs/decisions.md 47): anomaly_main rescored with a label-free heart-rate artifact
+# screen. Post hoc; anomaly_main stays the headline result. Run with `sleepwatch anomaly rescore`.
+name: anomaly_screened
+screen:
+  above_median_bpm: 40.0
+  min_epochs: 10

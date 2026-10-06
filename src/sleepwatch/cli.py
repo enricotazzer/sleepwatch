@@ -247,3 +247,31 @@ def anomaly_run(
     primary = output["metrics"]["variants"]["gru/personal"]["false_alarm_rate"]["value"]
     console.print(f"False-alarm rate on clean test nights (GRU stages, personal): {primary:.3f}")
     console.print(f"Saved {run_dir}")
+
+
+@anomaly_app.command("rescore")
+def anomaly_rescore(
+    config: Annotated[Path, typer.Argument(help="Anomaly experiment YAML (e.g. with a screen).")],
+    from_run: Annotated[Path, typer.Option(help="Saved run whose stages and injections to reuse.")],
+) -> None:
+    """Score a saved run's nights again with this config's screen (Phase 3b), and compare."""
+    import pandas as pd
+
+    from sleepwatch.anomaly.experiment import AnomalyConfig, compare_runs, rescore, save_run
+    from sleepwatch.features.build import load_build
+
+    if not config.is_absolute() and not config.exists():
+        config = PROJECT_ROOT / config
+    if not from_run.is_absolute() and not from_run.exists():
+        from_run = PROJECT_ROOT / from_run
+    cfg = AnomalyConfig.from_yaml(config)
+    settings = get_settings()
+    epochs, quality, build = load_build(cfg.features, settings.processed_dir)
+    console.print(f"Rescoring '{from_run.name}' as '{cfg.name}'")
+    output = rescore(cfg, from_run, epochs, log=console.print)
+    base = pd.read_parquet(from_run / "night_scores.parquet")
+    output["comparison"] = compare_runs(base, output["results"], cfg)
+    run_dir = save_run(cfg, output, quality, settings.results_dir, extra={"features_build": build})
+    primary = output["metrics"]["variants"]["gru/personal"]["false_alarm_rate"]["value"]
+    console.print(f"False-alarm rate on clean test nights (GRU stages, personal): {primary:.3f}")
+    console.print(f"Saved {run_dir}")
