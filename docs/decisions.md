@@ -346,3 +346,41 @@ Newest entries last. Each entry gives the decision and the reason for it.
       - AUROC side by side.
       - The alarm edge per fold.
       - Suspect epochs by version kind, inside vs outside injection windows.
+48. **Phase 3b outcome (recorded after the rescoring; decision 47 was not changed).**
+    - **Run:** `anomaly_screened` 20261006T141555Z at commit 24081ef, clean, rescoring
+      `anomaly_main` 20261006T091359Z. Rescoring without the screen reproduces `anomaly_main`'s
+      night and null scores exactly.
+    - **What the screen marks:** 94 epochs on 2 of 251 usable clean nights, `Bidslab43/3`
+      (41 min) and `Bidslab53/3` (6 min). Among injected versions, it marks epochs only on
+      those two nights.
+    - **One pre-declared check fails:** in 5 of `Bidslab43/3`'s 15 injected versions, 10–18
+      artifact epochs stay unmasked. A 2-h HR injection lifts the night median (and with it the
+      threshold), or an inserted awakening splits the artifact's run below 5 min. This is a
+      property of the rule; it is reported, not fixed.
+    - **Primary detector, screened minus main:**
+      - **False alarms:** unchanged at 3.2% (one night out, one in).
+      - **Recall:** −0.006 to +0.026 per condition. The largest changes are 8 awakenings and
+        +60 min onset, both +0.026, with CIs just above 0.
+      - **AUROC:** changes by at most 0.012.
+      - **Two effects partly cancel.** The artifact no longer makes most of `Bidslab43/3`'s
+        versions flag (11 of 16 before, 3 after). Without it among the training nights, fold 0's
+        edge loosens by one rank and the 30-min HR maximum drops in folds 3 and 4.
+    - **Conclusion:** the artifact was not what kept recall low. Decision 46's diagnosis stands.
+    - **Real nights:** `Bidslab43/3` is no longer flagged, and `Bidslab34/3` is newly flagged.
+      For `Bidslab34/3`, the expert labels show the person awake throughout the window, but the
+      GRU staged most of it as sleep. A staging error can therefore also cause a flag.
+    - **Headline:** `anomaly_main` stays the headline result. Details are in
+      `notebooks/03b_screen.ipynb`.
+
+## Housekeeping
+
+- **2026-10-06: commit messages rewritten.**
+  - **What changed:** a co-author trailer was removed from all 22 commit messages on `main`.
+    Trees, authors and dates are unchanged, so every commit holds exactly the same code as
+    before.
+  - **What it breaks:** hashes recorded before the rewrite no longer exist on the branch. They
+    appear in run records, the feature build, the fold file, notebook outputs and this log (for
+    example 93c9a17 and 24081ef above).
+  - **How to translate them:** `docs/commit_map.tsv` maps each old hash to its new commit. The
+    review notebook translates recorded hashes through it and checks that every one is on the
+    current branch.

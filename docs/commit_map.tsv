@@ -1,0 +1,23 @@
+old_commit	new_commit	subject
+803c5b54ca91436d6493a2a0057bc87695398da8	745fbf23e1d65389f2db7784ff2c169b19c9eb27	Set up sleepwatch project scaffold (Phase 0)
+7736d6f656ea8dbc4d7caf65738f235b808f471e	675ca6bf132e8582d901eacb025c672b3b59371d	Add data pipeline, epoch features and EDA (Phase 1)
+d194afb88e12a66ba7d9d9965108db56b6c9ef13	e485e4793336fbadadf5e55672868615236f75b9	Rerun Phase 1 on the full verified dataset
+1cd1574646b2b604198a95f3f5bf016aa041441f	5565d7548bfcb82714b41c96a17cae6ec7f0ff99	Record label-timing and Bidslab01/4 decisions
+08fcac639f85e824636f66f74ef6103865190b78	6e497517ae7d1e2c2b3afa98ccd8c5dce0c625b9	Fix CLI test under forced color; add in-window HR quality stats
+492e412b72db9a398a5290d6d13c8e251a8d8ba8	e3cf1d08f35e8bcb65fdd3a31e0906affe93dd27	Provenance: ignore untracked files when flagging a dirty tree
+d42f1c4390f6634786426646b0e2fcc20488139d	e6954dcf4002ee63958703425a9d7aef38a14762	Add review notebook with independent checks of data and Phase 1
+bdc65fc7483ae68d3eff0c430b66103df8e90f80	aeb6e05cda8dee97352ff54e7bcb968ec8fbe00f	Add Phase 2 staging code: splits, metrics, models, experiment runner
+684664c0fb2f66e8050f8426e1ea937ec2a307a2	1e46af9356600fb19351d5d2025049196b51387b	Add matched-training-set control for personalization comparisons
+1e9e1dc34a1861d113e3d7e5d344720a32d86ad6	91d923bb56dea44cf181e79bf9967d4794c4ea35	GRU: smaller default size; add script that reruns all staging experiments
+9db736399205ad6e1b6cd189faf5b200510fcd65	b1182f232a83fc3636ad30f0470b6bed035a1f46	Docs: Phase 2 decisions and commands
+2f3d637afcfeb5cb8576d7cd5cfb094957aba182	796a44ec1568d6895de63a5b9f665e175e37727e	GRU: unpacked bidirectional layer, optional device, parallel folds
+30a32016e95a93c2f356563932ba230ac701beb7	b181aae7202e578e4c15720d2ebbc7ee828b5c1c	Phase 2 results: staging notebook, Phase 2 review checks, docs
+0245a61baea1ec8e98d3f2131fd82ce1d09a515f	cbe70ebb370b3d922657ac4851f1145c959a52f9	Phase 2b protocol: three personalization designs, controls and grids, fixed before any run
+69468d94d56a14326015c6e83d60e8690a839066	eea3ee15d1071762c4cbc3ad455e368e05f3abd5	Phase 2b: expanding baseline, learned person summary, fine-tuning
+e459c6ab2440e77d90a8c2aecc24b2c14069bf9a	e8e8750aa3626719cf1b75c6d23f3c1271a0f32e	Phase 2b results: personalization notebook, review checks, docs
+a21f8b269904fb35793c2f1e91e3eea0e6904816	e491469946e20fd14cb07a0b2630217990ee5c10	Phase 3 protocol: detector, injections and metrics, fixed before any run
+2457f4190512bdc8e1c5b0b439ad0f20e27320c9	55c05f3bc19c511dd4f81203a68a0d8d278c1420	Phase 3: personal baselines, night channels, injections and calibrated alarms
+93c9a177d6326b78b696d6dcad291e4565219a24	eb5c420d6b1dc52d94067a27456add5794c1ca36	Phase 3 notebooks: review checks and analysis notebook (not yet executed)
+3f7b511e7753492e51108c72bf7e968d3eac128a	34cc2a76ffbc7b7e1bcdb46041875cbd9c81ae97	Phase 3 results: anomaly notebook, review checks, docs
+10926aa9b7232afb56790d1b29309414eabb63c0	8087bff355a25b61a4207717f1e307458a229c3a	Phase 3b protocol: label-free HR artifact screen, rescoring anomaly_main, fixed before any run
+24081ef60fdc7b4e81dfa831cd8c2f8492b423c7	618e896da77e49da0c0385ba2be89fd67c4959bd	Phase 3b code: HR artifact screen, rescoring a saved run, paired comparison

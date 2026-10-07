@@ -27,6 +27,7 @@ with an LLM follow-up agent that asks about your day after an unusual night.
 | 2 | Sleep staging with multi-night personalization | done |
 | 2b | Three more personalization designs | done |
 | 3 | Personalized anomaly detection | done |
+| 3b | Heart-rate artifact screen (post hoc) | done |
 | 4 | LLM follow-up agent and simulated-user evaluation | planned |
 | 5 | Deployable app | planned |
 | 6 | Results and documentation | planned |
@@ -82,6 +83,11 @@ people's nights. Validation injects known anomalies into the raw watch signals o
   them is a likely sensor artifact. The flags are described, not explained.
 
 Details are in [`notebooks/03_anomaly.ipynb`](notebooks/03_anomaly.ipynb).
+
+**Phase 3b (post hoc):** a label-free screen ignores heart rate that stays 40+ bpm above the
+night's median for 5+ minutes. It marks two nights, removes the artifact's spurious flags and
+keeps false alarms at 3.2%. Recall changes by at most +0.026, so the artifact was not what
+limited detection. See [`notebooks/03b_screen.ipynb`](notebooks/03b_screen.ipynb).
 
 ## Data
 
