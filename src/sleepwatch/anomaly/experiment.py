@@ -497,12 +497,16 @@ def summaries(
     inputs: pd.DataFrame,
     quality: pd.DataFrame,
     screen: ScreenSettings | None = None,
+    versions: tuple[str, ...] | None = ("clean",),
 ) -> list[dict]:
-    """``AnomalySummary`` for each clean test night the primary detector flags."""
+    """``AnomalySummary`` for each test night the primary detector flags, in row order.
+
+    Only clean nights by default; ``versions=None`` takes every version (the Phase 4 cases use
+    flagged injected versions too)."""
     rows = results[
         (results["source"] == PRIMARY[0])
         & (results["baseline"] == PRIMARY[1])
-        & (results["version"] == "clean")
+        & (results["version"].isin(versions) if versions is not None else True)
         & results["flagged"]
     ]
     quality = quality.set_index(["subject", "night"])
@@ -511,7 +515,7 @@ def summaries(
         night = inputs[
             (inputs["subject"] == r["subject"])
             & (inputs["night"] == r["night"])
-            & (inputs["version"] == "clean")
+            & (inputs["version"] == r["version"])
         ].sort_values("epoch")
         start_local = quality.loc[(r["subject"], r["night"]), "rec_start_local"]
         channels = [

@@ -16,9 +16,11 @@ app = typer.Typer(no_args_is_help=True, help="Personalized sleep staging and ano
 data_app = typer.Typer(no_args_is_help=True, help="Dataset utilities.")
 splits_app = typer.Typer(no_args_is_help=True, help="Cross-validation folds.")
 anomaly_app = typer.Typer(no_args_is_help=True, help="Personalized anomaly detection (Phase 3).")
+agent_app = typer.Typer(no_args_is_help=True, help="LLM follow-up agent (Phase 4).")
 app.add_typer(data_app, name="data")
 app.add_typer(splits_app, name="splits")
 app.add_typer(anomaly_app, name="anomaly")
+app.add_typer(agent_app, name="agent")
 console = Console(soft_wrap=True)  # don't break paths across lines
 
 
@@ -275,3 +277,157 @@ def anomaly_rescore(
     primary = output["metrics"]["variants"]["gru/personal"]["false_alarm_rate"]["value"]
     console.print(f"False-alarm rate on clean test nights (GRU stages, personal): {primary:.3f}")
     console.print(f"Saved {run_dir}")
+
+
+def _project_path(path: Path) -> Path:
+    return PROJECT_ROOT / path if not path.is_absolute() and not path.exists() else path
+
+
+@agent_app.command("cases")
+def agent_cases(
+    config: Annotated[Path, typer.Argument(help="Agent evaluation YAML.")],
+) -> None:
+    """List the anomaly cases the agent is evaluated on, with their dev/test split."""
+    from sleepwatch.agent.evaluate import AgentEvalConfig, load_cases
+
+    cfg = AgentEvalConfig.from_yaml(_project_path(config))
+    settings = get_settings()
+    for case in load_cases(cfg, settings.results_dir, settings.processed_dir):
+        fired = [c.channel for c in case.summary.channels if c.fired]
+        console.print(f"{case.split:4}  {case.kind:5}  {case.case_id:28}  {', '.join(fired)}")
+
+
+@agent_app.command("chat")
+def agent_chat(
+    config: Annotated[Path, typer.Argument(help="Agent evaluation YAML (for the cases).")],
+    case: Annotated[
+        str | None, typer.Option(help="Case id [default: the first real case].")
+    ] = None,
+    model: Annotated[str, typer.Option(help="Ollama model that asks and extracts.")] = "gemma3:4b",
+) -> None:
+    """Talk to the follow-up agent in the terminal about one flagged night."""
+    import json
+
+    from sleepwatch.agent.agent import LLMAgent, converse
+    from sleepwatch.agent.backend import OllamaBackend
+    from sleepwatch.agent.evaluate import AgentEvalConfig, load_cases
+
+    cfg = AgentEvalConfig.from_yaml(_project_path(config))
+    settings = get_settings()
+    cases = {c.case_id: c for c in load_cases(cfg, settings.results_dir, settings.processed_dir)}
+    chosen = cases[case] if case else next(c for c in cases.values() if c.kind == "real")
+    backend = OllamaBackend(model, num_ctx=cfg.num_ctx)
+
+    def answer(turns) -> str:
+        console.print(f"\n[bold]Assistant:[/bold] {turns[-1].text}\n")
+        return typer.prompt("You")
+
+    record = converse(
+        LLMAgent(backend, seed=cfg.seed), backend, chosen.summary, answer, chosen.case_id
+    )
+    console.print(f"\n[bold]Assistant:[/bold] {record.turns[-1].text}\n")
+    console.print_json(json.dumps(record.result.model_dump(mode="json")))
+
+
+@agent_app.command("eval")
+def agent_eval(
+    config: Annotated[Path, typer.Argument(help="Agent evaluation YAML.")],
+    resume: Annotated[
+        Path | None, typer.Option(help="Continue this run (same config and commit).")
+    ] = None,
+) -> None:
+    """Simulated-user evaluation: conversations, then the judge, then metrics (decision 49)."""
+    from sleepwatch.agent.backend import ollama_info
+    from sleepwatch.agent.evaluate import (
+        AgentEvalConfig,
+        check_resume,
+        compute_metrics,
+        load_cases,
+        ollama_backends,
+        personas_for,
+        record_index,
+        run_conversations,
+        run_judge,
+        start_run,
+    )
+    from sleepwatch.provenance import git_revision
+
+    cfg = AgentEvalConfig.from_yaml(_project_path(config))
+    settings = get_settings()
+    if cfg.split == "test" and git_revision()["dirty"] is not False:
+        console.print("[red]The test run must start from a clean tree; commit first.[/red]")
+        raise typer.Exit(code=1)
+    cases = load_cases(cfg, settings.results_dir, settings.processed_dir)
+    personas = personas_for(cfg, cases)
+    if resume:
+        run_dir = _project_path(resume)
+        check_resume(cfg, run_dir)
+    else:
+        run_dir = start_run(cfg, settings.results_dir, cases, personas, ollama_info(cfg.models()))
+    console.print(
+        f"Agent evaluation '{cfg.name}' ({cfg.split}): {len(personas)} personas x "
+        f"{len(cfg.agents)} agents -> {run_dir}"
+    )
+    backends = ollama_backends(cfg)
+    run_conversations(cfg, run_dir, cases, personas, backends, log=console.print)
+    run_judge(cfg, run_dir, personas, backends, log=console.print)
+    metrics = compute_metrics(cfg, run_dir)
+    record_index(cfg, run_dir, settings.results_dir, metrics)
+    for name, res in metrics["agents"].items():
+        console.print(
+            f"{name:12} recall {res['cause_recall']['value']:.2f}  "
+            f"precision {res['cause_precision']['value']:.2f}  "
+            f"hallucinated {res['hallucinated_factor_rate']['value']:.2f}  "
+            f"leading {res['leading_question_rate']['value']:.2f}"
+        )
+    console.print(f"Saved {run_dir}")
+
+
+@agent_app.command("judge")
+def agent_judge(
+    run: Annotated[Path, typer.Argument(help="Saved agent evaluation run.")],
+) -> None:
+    """Judge any unjudged conversations of a run and recompute its metrics."""
+    from sleepwatch.agent.evaluate import (
+        AgentEvalConfig,
+        compute_metrics,
+        load_run,
+        ollama_backends,
+        run_judge,
+    )
+
+    run_dir = _project_path(run)
+    cfg = AgentEvalConfig.from_yaml(run_dir / "config.yaml")
+    personas, _, _ = load_run(run_dir)
+    run_judge(cfg, run_dir, personas, ollama_backends(cfg), log=console.print)
+    compute_metrics(cfg, run_dir)
+    console.print(f"Updated {run_dir}")
+
+
+@agent_app.command("label-sample")
+def agent_label_sample(
+    run: Annotated[Path, typer.Argument(help="Saved agent evaluation run.")],
+    questions: Annotated[int, typer.Option(help="Agent questions to label.")] = 60,
+    factors: Annotated[int, typer.Option(help="Extracted factors to label.")] = 40,
+) -> None:
+    """Write the blinded labelling sheet for the human check of the judge."""
+    from sleepwatch.agent.labels import sample
+
+    out = sample(_project_path(run), questions, factors)
+    console.print(
+        f"Fill in {out / 'questions.csv'} and {out / 'factors.csv'} ({out / 'README.md'})"
+    )
+
+
+@agent_app.command("agreement")
+def agent_agreement(
+    run: Annotated[Path, typer.Argument(help="Saved agent evaluation run with a filled sheet.")],
+) -> None:
+    """Cohen's kappa between the human labels and the judge."""
+    from sleepwatch.agent.labels import agreement
+
+    result = agreement(_project_path(run))
+    console.print(
+        f"kappa leading {result['kappa_leading']:.2f}, supported {result['kappa_supported']:.2f} "
+        f"(minimum {result['kappa_min']})"
+    )

@@ -1,0 +1,17 @@
+# Phase 4 test run (docs/decisions.md 49): 60 personas (3 styles x 0-3 causes x 5) on the 20 test
+# cases, each talking to every agent. Run once, from a clean tree after the prompt freeze:
+# scripts/run_agent_eval.sh
+name: agent_test
+split: test
+anomaly_run: anomaly_screened/20261006T141555Z
+case_seed: 49
+persona_seed: 4901
+personas_per_cell: 5
+agents:
+  - {name: "gemma3:4b", kind: llm, model: "gemma3:4b"}
+  - {name: "medgemma:4b", kind: llm, model: "medgemma:4b"}
+  - {name: "llama3.2:3b", kind: llm, model: "llama3.2:3b"}
+  - {name: checklist, kind: checklist, model: "gemma3:4b"}
+reference: "gemma3:4b"
+simulator: "qwen3.5:9b"
+judge: "qwen3.5:9b"

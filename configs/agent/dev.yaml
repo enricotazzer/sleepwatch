@@ -1,0 +1,17 @@
+# Phase 4 dev runs (docs/decisions.md 49): 12 personas (3 styles x 0-3 causes) on the 6 dev
+# cases, for tuning prompts. Same case selection as test.yaml, so no subject is shared.
+# uv run sleepwatch agent eval configs/agent/dev.yaml
+name: agent_dev
+split: dev
+anomaly_run: anomaly_screened/20261006T141555Z
+case_seed: 49
+persona_seed: 4902
+personas_per_cell: 1
+agents:
+  - {name: "gemma3:4b", kind: llm, model: "gemma3:4b"}
+  - {name: "medgemma:4b", kind: llm, model: "medgemma:4b"}
+  - {name: "llama3.2:3b", kind: llm, model: "llama3.2:3b"}
+  - {name: checklist, kind: checklist, model: "gemma3:4b"}
+reference: "gemma3:4b"
+simulator: "qwen3.5:9b"
+judge: "qwen3.5:9b"

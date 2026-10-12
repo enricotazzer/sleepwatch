@@ -7,10 +7,13 @@ Research prototype, not a medical device.
 
 ## Workflow
 Work is split into phases 0–6 (see README). Each phase starts with a plan the user approves, and
-ends with a results summary; then wait for the go-ahead. Ask when a decision is the user's.
+ends with a results summary plus a detailed LaTeX report in `docs/reports/<phase>/` (what was built,
+decisions, results with CIs, key figures, every check and failure, deviations, mistakes, open issues)
+for the user to check; then wait for the go-ahead. Ask when a decision is the user's.
 Phases 0 (setup), 1 (data pipeline + EDA), 2 (staging), 2b (more personalization designs), 3
 (anomaly detection) and 3b (heart-rate artifact screen) are done; Phase 4 (LLM follow-up agent)
-needs a plan and the user's go-ahead. The user commits: leave changes uncommitted and give them
+is in progress under decision 49: prompts tuned on dev only, then a single test run from a clean
+tree. The user commits: leave changes uncommitted and give them
 the commit message text, with no `Co-Authored-By` trailer.
 
 ## Commands
@@ -28,6 +31,10 @@ uv run sleepwatch splits make             # fold file (already created; never re
 uv run sleepwatch train configs/staging/hgb_main.yaml [--fold 0] [--jobs 5]   # one experiment
 ./scripts/run_staging_experiments.sh      # all Phase 2 and 2b experiments (CPU; GRU folds in parallel)
 ./scripts/run_anomaly_experiments.sh      # Phase 3 run (raw data on the T7), then the Phase 3b rescore (--rescore-only: just 3b)
+uv run sleepwatch agent chat configs/agent/dev.yaml [--case ID]   # talk to the follow-up agent (Ollama)
+./scripts/run_agent_eval.sh               # Phase 4 test run, once (AGENT_CONFIG=configs/agent/dev.yaml: dev)
+uv run sleepwatch agent label-sample RUN && uv run sleepwatch agent agreement RUN  # human judge check
+cd docs/reports/<phase> && latexmk -pdf -outdir=build report.tex && cp build/report.pdf .  # phase report
 ```
 
 ## Layout
@@ -38,12 +45,18 @@ uv run sleepwatch train configs/staging/hgb_main.yaml [--fold 0] [--jobs 5]   # 
 - `models/`: `splits` (fixed folds), `metrics`, `data` (personal features, label shifts), `hgb`,
   `gru`, `experiment` (config-driven runner). Experiment configs in `configs/staging/`; outputs in
   `results/<name>/<timestamp>/` plus `results/index.csv`.
+- `agent/`: `schema` (pydantic output), `render` (summary to plain facts), `guard`, `backend`
+  (Ollama), `agent` (conversation, extraction), `personas` (simulated people), `cases`, `judge`,
+  `metrics`, `evaluate`, `labels` (human check). Configs in `configs/agent/`; runs in
+  `results/agent_<split>/<timestamp>/` plus `results/agent_index.csv`. Ollama models live on the T7.
 - Epoch table: `data/processed/epochs_<name>.parquet`; model inputs are
   `feature_columns(df)`, which excludes metadata, labels and `qc_*` coverage columns.
 - `configs/`: experiment YAMLs extending `base.yaml`; `configs/splits/` holds the fold file.
 - `data/` (gitignored): `raw` → symlink to the dataset on the external T7 drive; `interim` →
   symlink to `/Volumes/T7/sleepwatch-data/interim`; `processed/` local. `results/` (gitignored).
 - `docs/data.md`: dataset facts and known quirks. `docs/decisions.md`: decision log.
+  `docs/reports/<phase>/`: one LaTeX report per phase (`report.tex`, `figures/`, compiled
+  `report.pdf`; build files go to the ignored `build/`).
 
 ## Data facts (details in docs/data.md)
 - BIDSleep v1.0.1: 47 subjects, 253 nights, 3–7 nights each. Per night: `hr.csv` (no header:

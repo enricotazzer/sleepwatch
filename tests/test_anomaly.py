@@ -20,6 +20,7 @@ from sleepwatch.anomaly.experiment import (
     rescore,
     run,
     save_run,
+    summaries,
 )
 from sleepwatch.anomaly.inject import (
     InjectionSettings,
@@ -350,6 +351,24 @@ def test_runner_end_to_end(smoke):
     ]:
         assert (run_dir / name).is_file()
     assert pd.read_csv(smoke["dir"] / "anomaly_index.csv").loc[0, "partial"]
+
+
+def test_summaries_of_other_versions_leave_the_clean_ones_unchanged(smoke):
+    output, run_dir = smoke["output"], smoke["run_dir"]
+    quality = pd.DataFrame(
+        {"subject": output["nights"]["subject"], "night": output["nights"]["night"]}
+    ).assign(rec_start_local="2022-01-10 23:00:00")
+    saved = json.loads((run_dir / "flagged_nights.json").read_text())
+    assert summaries(output["results"], output["injected"], quality) == saved
+    every = summaries(output["results"], output["injected"], quality, versions=None)
+    primary = output["results"][
+        (output["results"]["source"] == "gru")
+        & (output["results"]["baseline"] == "personal")
+        & output["results"]["flagged"]
+    ]
+    assert len(every) == len(primary)
+    clean = [s for s, v in zip(every, primary["version"], strict=True) if v == "clean"]
+    assert clean == saved
 
 
 # --- Phase 3b: screen and rescoring -------------------------------------------------------------
