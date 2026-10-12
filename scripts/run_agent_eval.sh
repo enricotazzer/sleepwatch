@@ -13,8 +13,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 config=${AGENT_CONFIG:-configs/agent/test.yaml}
-name=$(sed -n 's/^name: *//p' "$config")
-judge=$(sed -n 's/^judge: *//p' "$config")
+name=$(sed -n 's/^name: *//p' "$config" | tr -d "\"'")
+judge=$(sed -n 's/^judge: *//p' "$config" | tr -d "\"'")
 judge=${judge:-qwen3.5:9b}
 
 models_ok() {
@@ -28,7 +28,7 @@ echo "=== $name $(date -u +%FT%TZ)"
 args=("$@")
 before=-1
 for attempt in 1 2 3 4 5 6 7 8; do
-    if caffeinate -is uv run sleepwatch agent eval "$config" "${args[@]}"; then
+    if caffeinate -is uv run sleepwatch agent eval "$config" ${args[@]+"${args[@]}"}; then
         echo "=== done $(date -u +%FT%TZ)"
         exit 0
     fi
